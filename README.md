@@ -1,37 +1,72 @@
 # go-validator
 
-Laravel-style validation for Go. The same rules work in an HTTP handler, a gRPC service or a plain Go program.
+[![CI](https://github.com/getrapid-app/go-validator/actions/workflows/ci.yml/badge.svg)](https://github.com/getrapid-app/go-validator/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/getrapid-app/go-validator.svg)](https://pkg.go.dev/github.com/getrapid-app/go-validator)
 
-> Status: early development. The core, all of Laravel's rules, and the HTTP and gRPC adapters are in place. See [docs/DESIGN.md](docs/DESIGN.md) for the design and [docs/RULES.md](docs/RULES.md) for every rule.
+Laravel-style validation for Go. Write rules the way you would in Laravel, and use them in an HTTP handler, a gRPC service, a CLI or a queue worker.
+
+- **Every Laravel rule.** That's 100+ rules, from `required_if` and `exclude_unless` to `distinct`, `dimensions` and `unique`, with Laravel's messages. See [docs/RULES.md](docs/RULES.md).
+- **Three ways to write rules, one behaviour.** You can use rule lists (`[]string{"required", "email"}`), struct tags (`validate:"required|email"`) or a fluent API (`Chain().Required().Email()`).
+- **Structs and maps**, with nested fields and wildcards (`items.*.price`).
+- **One rule interface** for built-in and custom rules, with a fluent `Define` for your own.
+- **Form Request pattern.** A request type can declare `Rules`, `Authorize`, `Prepare`, `Messages`, `Attributes` and `After`.
+- **Transport-agnostic.** The core has no dependencies. `nethttp` uses only the standard library, and `grpcvalidator` is a separate module.
+- **Laravel-compatible errors.** HTTP failures come back as `422 {"message": ..., "errors": {...}}`, so existing front ends keep working.
+
+Requires Go 1.22 or later.
+
+## Install
+
+```sh
+go get github.com/getrapid-app/go-validator
+go get github.com/getrapid-app/go-validator/grpcvalidator # only for gRPC
+```
+
+## Quick start
 
 ```go
 import "github.com/getrapid-app/go-validator"
 
-// Laravel rule lists
 err := validator.Validate(ctx, input, validator.Rules{
-    "email":       []string{"required", "email", "max:255"},
-    "items.*.qty": "required|integer|min:1", // pipe syntax works too
+    "email":         []string{"required", "email", "max:255"},
+    "age":           []string{"required", "integer", "min:18"},
+    "items.*.qty":   "required|integer|min:1", // pipe syntax works too
+    "password":      validator.Chain().Required().Min(8).Confirmed(),
 })
-
-// Fluent API
-err = validator.Validate(ctx, input, validator.Rules{
-    "email": validator.Chain().Required().Email().Max(255),
-})
-
-// Struct tags
-type SignUp struct {
-    Email string `json:"email" validate:"required|email|max:255"`
-}
-err = validator.Struct(ctx, &signUp)
 
 if bag, ok := validator.ErrorsOf(err); ok {
     fmt.Println(bag.First("email")) // The email field must be a valid email address.
 }
 ```
 
-`required` treats `0` as empty, because a Go struct can't tell a missing number from zero. Add `accept_zero` when 0 is a valid value: `[]string{"required", "accept_zero", "integer"}`.
+### Request types
 
-Custom rules use the same interface as the built-in ones:
+```go
+type CreateOrder struct {
+    Email string      `json:"email" validate:"required|email"`
+    Items []OrderItem `json:"items" validate:"required|array|min:1"`
+    Note  *string     `json:"note" validate:"sometimes|string|max:500"` // nil means "not sent"
+}
+
+func (r *CreateOrder) Rules() validator.Rules {
+    return validator.Rules{"items.*.sku": []string{"required", "distinct"}}
+}
+
+func (r *CreateOrder) Authorize(ctx context.Context) error {
+    if !auth.Can(ctx, "orders.create") {
+        return errors.New("not allowed")
+    }
+    return nil
+}
+
+req, err := validator.Bind[CreateOrder](ctx, input) // decode + validate
+```
+
+### Zero values
+
+A Go struct can't tell a missing number from `0`, so `required` treats `0` as empty. Add `accept_zero` when 0 is a real value: `validate:"required|accept_zero|integer"`. To make a field optional, use a pointer; a nil pointer counts as missing.
+
+### Custom rules
 
 ```go
 validator.Define("even").
@@ -43,24 +78,23 @@ validator.Define("even").
         }
         return nil
     })
+
+// Now usable everywhere: "required|even", validate:"even", Chain().Rule("even")
 ```
+
+`exists` and `unique` call a `PresenceVerifier` you implement for your database (`validator.WithPresenceVerifier`), so the package doesn't depend on a database driver.
 
 ## HTTP
 
 ```go
 import "github.com/getrapid-app/go-validator/nethttp"
 
-type CreatePost struct {
-    Title string   `json:"title" validate:"required|string|max:100"`
-    Tags  []string `json:"tags" validate:"array|max:3"`
-}
-
-mux.Handle("POST /posts", nethttp.Handle(func(w http.ResponseWriter, r *http.Request, req *CreatePost) {
+mux.Handle("POST /orders", nethttp.Handle(func(w http.ResponseWriter, r *http.Request, req *CreateOrder) {
     // req is decoded and valid
 }))
 ```
 
-`nethttp.Bind[T](r)` reads query parameters and JSON, urlencoded or multipart bodies (files included), and validates the result. `nethttp.WriteError` answers like Laravel: 422 with `{"message": ..., "errors": {...}}`, 403 when `Authorize` fails, and 400 for an unreadable body.
+`nethttp.Bind[T](r)` reads query parameters and JSON, urlencoded or multipart bodies, including files. `nethttp.WriteError` answers like Laravel: 422 with every field's messages, 403 when `Authorize` fails, and 400 for an unreadable body.
 
 ## gRPC
 
@@ -78,13 +112,38 @@ grpc.NewServer(
 )
 ```
 
-Failures become `InvalidArgument` with an `errdetails.BadRequest` listing each field. The adapter is its own Go module, so the core keeps zero dependencies.
+Failures become `InvalidArgument` with an `errdetails.BadRequest` that lists each field. Use proto3 `optional` for numbers that may be unset.
 
-## Plain programs
+## Translations
 
 ```go
-req, err := validator.Bind[Signup](ctx, input) // input: map[string]any from JSON, a queue message, flags...
+v := validator.New(validator.WithTranslator(validator.MapTranslator{
+    "ar": {"required": "حقل :attribute مطلوب."},
+}, "ar"))
 ```
+
+Custom messages (`WithMessages`, keyed `email.required` or `required`) and display names (`WithAttributes`) work like Laravel's `messages()` and `attributes()`.
+
+## Performance
+
+These numbers come from `go test -bench=. -benchmem` on a 4 vCPU Linux VM, so treat them as rough:
+
+| Benchmark | Time | Allocations |
+|---|---|---|
+| Struct with 4 tagged fields and 3 items | 13 µs | 156 |
+| Map with 4 fields | 5 µs | 65 |
+| Struct with 100 wildcard items | 297 µs | 3,469 |
+| `nethttp.Bind` of a small JSON body | 17 µs | 143 |
+
+## Docs
+
+- [docs/RULES.md](docs/RULES.md) has every rule with its string and fluent forms.
+- [docs/DESIGN.md](docs/DESIGN.md) covers the architecture and the decisions behind it.
+- [pkg.go.dev](https://pkg.go.dev/github.com/getrapid-app/go-validator) has the API reference and runnable examples.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

@@ -1,6 +1,6 @@
 # go-validator design
 
-Status: core (step 1), full rule set (step 2) and adapters (step 3) implemented. Step 4 (release) is next.
+Status: released as v0.1.0.
 
 ## Goal
 
@@ -167,7 +167,7 @@ All adapters follow the same path: decode the transport's input, run the request
 
 - **Core `Bind[T](ctx, input)`** decodes a `map[string]any` into `T` and validates it. Decoding is lenient for form-style input ("42" into an `int`, "on" into a `bool`). A value that cannot be converted becomes a validation error on its field ("must be an integer"). Rules see the decoded struct plus any input keys without a struct field, so `confirmed` and `same:password_confirmation` work without adding those fields to `T`.
 - **`nethttp`** (stdlib only, inside the core module): `Input(r)` merges query and body (JSON, urlencoded, multipart with files; `items[0][name]`, `items.0.name` and `tags[]` keys), `Bind[T](r)`, `Handle[T](fn)`, `Validate(r, rules)` for map-only validation, and `WriteError`/`Response` with Laravel's 422/403/400 shapes.
-- **`grpcvalidator`** (separate module, depends on grpc): unary and stream interceptors validate messages that implement a request hook (usually `Rules()` in a file next to the generated code). Errors map to `InvalidArgument` with `errdetails.BadRequest`, and `ErrUnauthorized` maps to `PermissionDenied`. Until the first tag, its `go.mod` points at the core with a `replace` directive.
+- **`grpcvalidator`** (separate module, depends on grpc): unary and stream interceptors validate messages that implement a request hook (usually `Rules()` in a file next to the generated code). Errors map to `InvalidArgument` with `errdetails.BadRequest`, and `ErrUnauthorized` maps to `PermissionDenied`. It requires the core by version; CI and local development build both modules together through a `go.work` workspace (see CONTRIBUTING.md).
 
 ## Rules
 

@@ -35,6 +35,10 @@ func (v *Validator) tagSpecs(s any) ([]fieldSpec, error) {
 		collectTags(t, "", map[reflect.Type]bool{}, &entries)
 		tagCache.Store(t, entries)
 	}
+	key := compiledKey{t: t, reg: v.registry, version: v.registry.currentVersion()}
+	if cached, ok := compiledCache.Load(key); ok {
+		return cached.([]fieldSpec), nil
+	}
 	specs := make([]fieldSpec, 0, len(entries))
 	for _, e := range entries {
 		rules, err := Parse(e.rules).Build(v.registry)
@@ -43,8 +47,20 @@ func (v *Validator) tagSpecs(s any) ([]fieldSpec, error) {
 		}
 		specs = append(specs, fieldSpec{pattern: e.pattern, rules: rules})
 	}
+	compiledCache.Store(key, specs)
 	return specs, nil
 }
+
+// compiledKey identifies a struct type's tag rules built against one
+// version of one registry. Rules are immutable once built, so the compiled
+// specs are shared between calls and goroutines.
+type compiledKey struct {
+	t       reflect.Type
+	reg     *Registry
+	version uint64
+}
+
+var compiledCache sync.Map // compiledKey -> []fieldSpec
 
 func collectTags(t reflect.Type, prefix string, seen map[reflect.Type]bool, out *[]tagEntry) {
 	if seen[t] {
