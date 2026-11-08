@@ -19,6 +19,11 @@
 //		grpc.StreamInterceptor(grpcvalidator.StreamServerInterceptor()),
 //	)
 //
+// proto3 sends unset numbers as 0, and 0 is checked by every rule except
+// the presence rules. Declare optional numeric fields with the proto3
+// "optional" keyword, which generates pointer fields that count as missing
+// when unset, so "sometimes|integer|min:13" skips them.
+//
 // Failures become codes.InvalidArgument with an errdetails.BadRequest that
 // lists every field violation; a failed Authorize becomes
 // codes.PermissionDenied.
