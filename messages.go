@@ -73,9 +73,16 @@ func (v *Validator) replace(tmpl string, f Field, params map[string]any) string 
 	sort.Slice(names, func(i, j int) bool { return len(names[i]) > len(names[j]) })
 	for _, k := range names {
 		val := params[k]
-		if k == "other" {
-			if s, ok := val.(string); ok {
-				val = v.attributeName(s, s)
+		switch t := val.(type) {
+		case attrNames:
+			names := make([]string, len(t))
+			for i, n := range t {
+				names[i] = v.attributeName(n, n)
+			}
+			val = strings.Join(names, " / ")
+		case string:
+			if k == "other" {
+				val = v.attributeName(t, t)
 			}
 		}
 		pairs = append(pairs, ":"+k, formatParam(val))

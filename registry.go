@@ -143,23 +143,39 @@ func Parse(rules string) RuleSet { return parsed(rules) }
 func (p parsed) Build(r *Registry) ([]Rule, error) {
 	var out []Rule
 	for _, part := range strings.Split(string(p), "|") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
+		rule, err := parseOne(part, r)
+		if err != nil {
+			return nil, err
 		}
-		name, rawParams, hasParams := strings.Cut(part, ":")
-		var params []string
-		if hasParams {
+		if rule != nil {
+			out = append(out, rule)
+		}
+	}
+	return out, nil
+}
+
+// rawParamRules take everything after the colon as a single parameter,
+// because their parameter is a pattern that may contain commas.
+var rawParamRules = map[string]bool{"regex": true, "not_regex": true}
+
+// parseOne builds a single rule written as "name" or "name:p1,p2".
+func parseOne(s string, r *Registry) (Rule, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	name, rawParams, hasParams := strings.Cut(s, ":")
+	name = strings.TrimSpace(name)
+	var params []string
+	if hasParams {
+		if rawParamRules[name] {
+			params = []string{rawParams}
+		} else {
 			params = strings.Split(rawParams, ",")
 			for i := range params {
 				params[i] = strings.TrimSpace(params[i])
 			}
 		}
-		rule, err := r.Make(strings.TrimSpace(name), params...)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, rule)
 	}
-	return out, nil
+	return r.Make(name, params...)
 }
