@@ -1,6 +1,6 @@
 # go-validator design
 
-Status: core (step 1) and full rule set (step 2) implemented. Steps 3 (adapters) and 4 (release) are next.
+Status: core (step 1), full rule set (step 2) and adapters (step 3) implemented. Step 4 (release) is next.
 
 ## Goal
 
@@ -158,6 +158,16 @@ type Elevator struct {
 ```
 
 When a presence rule looks at *another* field (`required_with:qty`), 0 in that field counts as a value, as in Laravel, because that field's rules are not known there.
+
+Nil pointers, slices, maps and interfaces in a struct count as missing, not as present-but-null. So `*int` with `sometimes|integer` is the Go way to say "optional", and `required` on a nil slice reports the field as required.
+
+## Adapters
+
+All adapters follow the same path: decode the transport's input, run the request pattern, and map the result to the transport's error format.
+
+- **Core `Bind[T](ctx, input)`** decodes a `map[string]any` into `T` and validates it. Decoding is lenient for form-style input ("42" into an `int`, "on" into a `bool`). A value that cannot be converted becomes a validation error on its field ("must be an integer"). Rules see the decoded struct plus any input keys without a struct field, so `confirmed` and `same:password_confirmation` work without adding those fields to `T`.
+- **`nethttp`** (stdlib only, inside the core module): `Input(r)` merges query and body (JSON, urlencoded, multipart with files; `items[0][name]`, `items.0.name` and `tags[]` keys), `Bind[T](r)`, `Handle[T](fn)`, `Validate(r, rules)` for map-only validation, and `WriteError`/`Response` with Laravel's 422/403/400 shapes.
+- **`grpcvalidator`** (separate module, depends on grpc): unary and stream interceptors validate messages that implement a request hook (usually `Rules()` in a file next to the generated code). Errors map to `InvalidArgument` with `errdetails.BadRequest`, and `ErrUnauthorized` maps to `PermissionDenied`. Until the first tag, its `go.mod` points at the core with a `replace` directive.
 
 ## Rules
 

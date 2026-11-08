@@ -21,6 +21,16 @@ func (m MapTranslator) Translate(locale, key string) (string, bool) {
 	return msg, ok
 }
 
+// Message returns the text for message key on field, resolved and filled
+// in exactly as for a failing rule. Adapters use it to report problems found
+// before validation, such as a value that cannot be decoded.
+//
+//	v.Message("age", "integer", nil) // "The age field must be an integer."
+func (v *Validator) Message(field, key string, params map[string]any) string {
+	rule, _, _ := strings.Cut(key, ".")
+	return v.message(Field{Path: field, Pattern: field, v: v}, rule, &Failure{Key: key, Params: params})
+}
+
 // message resolves the text for a failure, in Laravel's order:
 //  1. custom message for "field.key" or "pattern.key" (also "field.rule")
 //  2. custom message for "key" (also "rule")
