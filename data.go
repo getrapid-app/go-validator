@@ -96,6 +96,14 @@ func normalizeStruct(rv reflect.Value, m map[string]any) {
 		if name == "" {
 			name = sf.Name
 		}
+		// A nil pointer, slice, map or interface in a struct means the value
+		// was not provided, so the field is treated as missing.
+		switch fv.Kind() {
+		case reflect.Pointer, reflect.Slice, reflect.Map, reflect.Interface:
+			if fv.IsNil() {
+				continue
+			}
+		}
 		m[name] = normalizeValue(fv)
 	}
 }
@@ -234,4 +242,26 @@ func resolveRelative(pattern, path, other string) string {
 		}
 	}
 	return strings.Join(oSegs, ".")
+}
+
+// overlay copies into dst every key of src that dst lacks, recursing into
+// maps present in both. It lets a request's rules see input keys that have
+// no struct field, such as password_confirmation.
+func overlay(dst, src any) any {
+	d, ok1 := dst.(map[string]any)
+	s, ok2 := src.(map[string]any)
+	if !ok1 || !ok2 {
+		if dst == nil {
+			return src
+		}
+		return dst
+	}
+	for k, sv := range s {
+		if dv, ok := d[k]; ok {
+			d[k] = overlay(dv, sv)
+		} else {
+			d[k] = normalize(sv)
+		}
+	}
+	return d
 }

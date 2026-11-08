@@ -74,6 +74,13 @@ func (e *unauthorizedError) Unwrap() []error { return []error{ErrUnauthorized, e
 // ValidateRequest runs the request pattern on req, which must be a pointer
 // to a struct: Authorize, Prepare, tag rules plus Rules(), then After.
 func (v *Validator) ValidateRequest(ctx context.Context, req any, opts ...Option) error {
+	return v.validateRequest(ctx, req, nil, opts)
+}
+
+// validateRequest is ValidateRequest with the raw input the request was
+// decoded from, if any. Input keys without a struct field stay visible to
+// the rules.
+func (v *Validator) validateRequest(ctx context.Context, req, input any, opts []Option) error {
 	if a, ok := req.(Authorizer); ok {
 		if err := a.Authorize(ctx); err != nil {
 			return &unauthorizedError{err: err}
@@ -84,13 +91,7 @@ func (v *Validator) ValidateRequest(ctx context.Context, req any, opts ...Option
 			return err
 		}
 	}
-	if m, ok := req.(MessagesProvider); ok {
-		opts = append(opts, WithMessages(m.Messages()))
-	}
-	if a, ok := req.(AttributesProvider); ok {
-		opts = append(opts, WithAttributes(a.Attributes()))
-	}
-	vv := v.with(opts)
+	vv := v.with(requestOptions(req, opts))
 	specs, err := vv.tagSpecs(req)
 	if err != nil {
 		return err
@@ -103,7 +104,11 @@ func (v *Validator) ValidateRequest(ctx context.Context, req any, opts ...Option
 		specs = append(specs, extra...)
 	}
 	bag := NewErrors()
-	err = vv.run(ctx, normalize(req), specs, bag)
+	data := normalize(req)
+	if input != nil {
+		data = overlay(data, input)
+	}
+	err = vv.run(ctx, data, specs, bag)
 	if _, isValidation := ErrorsOf(err); err != nil && !isValidation {
 		return err
 	}

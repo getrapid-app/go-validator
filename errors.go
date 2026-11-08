@@ -28,6 +28,26 @@ func (e *Errors) Add(field, message string) {
 	e.msgs[field] = append(e.msgs[field], message)
 }
 
+// Set replaces every message for field.
+func (e *Errors) Set(field string, messages ...string) {
+	if e.msgs == nil {
+		e.msgs = map[string][]string{}
+	}
+	if _, ok := e.msgs[field]; !ok {
+		e.order = append(e.order, field)
+	}
+	e.msgs[field] = append([]string(nil), messages...)
+}
+
+// Count returns the total number of messages across all fields.
+func (e *Errors) Count() int {
+	n := 0
+	for _, m := range e.msgs {
+		n += len(m)
+	}
+	return n
+}
+
 // Has reports whether field has at least one message.
 func (e *Errors) Has(field string) bool { return len(e.msgs[field]) > 0 }
 

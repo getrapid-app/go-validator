@@ -270,3 +270,30 @@ func TestRequestPattern(t *testing.T) {
 		t.Errorf("after: %q", got)
 	}
 }
+
+func TestStructNilFieldsAreMissing(t *testing.T) {
+	type form struct {
+		Age  *int     `json:"age" validate:"sometimes|integer|min:18"`
+		Tags []string `json:"tags" validate:"array|max:2"`
+		Bio  *string  `json:"bio" validate:"required"`
+	}
+	bag := mustErrors(t, validator.Struct(ctx, form{}))
+	if got := bag.Fields(); len(got) != 1 || got[0] != "bio" {
+		t.Fatalf("got %v", bag.All())
+	}
+	age := 12
+	bag = mustErrors(t, validator.Struct(ctx, form{Age: &age}))
+	if !bag.Has("age") {
+		t.Fatalf("age 12 should fail: %v", bag.All())
+	}
+}
+
+func TestBindSeesExtraInputKeys(t *testing.T) {
+	type form struct {
+		Password string `json:"password" validate:"required|confirmed"`
+	}
+	_, err := validator.Bind[form](ctx, map[string]any{"password": "secret", "password_confirmation": "secret"})
+	if err != nil {
+		t.Fatalf("got %v", err)
+	}
+}
