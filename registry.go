@@ -17,6 +17,7 @@ type Registry struct {
 	mu        sync.RWMutex
 	factories map[string]Factory
 	messages  map[string]string
+	version   uint64 // bumped on Register, so compiled tag rules are rebuilt
 }
 
 // NewRegistry returns a registry with every built-in rule and its English
@@ -32,7 +33,14 @@ func (r *Registry) Register(name string, f Factory) *Registry {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.factories[name] = f
+	r.version++
 	return r
+}
+
+func (r *Registry) currentVersion() uint64 {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.version
 }
 
 // SetMessage sets the default message for a key such as "even" or

@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*", "grpcvalidator/v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Go ${{ matrix.go }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ["1.22", "stable"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: grpcvalidator/go.sum
+
+      # The gRPC adapter requires the core module by version; a workspace
+      # with a replace makes it build against the core in this checkout, so
+      # both modules are always tested together.
+      - name: Create workspace
+        run: |
+          go work init . ./grpcvalidator
+          core=$(awk '$1 == "github.com/getrapid-app/go-validator" {print $2}' grpcvalidator/go.mod)
+          go work edit -replace=github.com/getrapid-app/go-validator@"$core"=./
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./... ./grpcvalidator/...
+
+      - name: Test
+        run: go test -race -count=1 ./... ./grpcvalidator/...
+
+      - name: Benchmarks compile and run once
+        run: go test -run=^$ -bench=. -benchtime=1x ./...

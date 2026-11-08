@@ -297,3 +297,22 @@ func TestBindSeesExtraInputKeys(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestTagCacheSeesLaterRules(t *testing.T) {
+	type form struct {
+		Code string `json:"code" validate:"required|upper_code"`
+	}
+	reg := validator.NewRegistry()
+	reg.Define("upper_code").Check(func(context.Context, validator.Field, []string) error { return nil })
+	v := validator.New(validator.WithRegistry(reg))
+	if err := v.Struct(ctx, form{Code: "abc"}); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	reg.Define("upper_code").Message("Must be upper case.").Check(func(context.Context, validator.Field, []string) error {
+		return validator.Fail("upper_code", nil)
+	})
+	bag := mustErrors(t, v.Struct(ctx, form{Code: "abc"}))
+	if bag.First("code") != "Must be upper case." {
+		t.Fatalf("got %v", bag.All())
+	}
+}

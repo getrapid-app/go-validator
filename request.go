@@ -101,7 +101,8 @@ func (v *Validator) validateRequest(ctx context.Context, req, input any, opts []
 		if err != nil {
 			return err
 		}
-		specs = append(specs, extra...)
+		// Full slice expression: never write into the cached tag specs.
+		specs = append(specs[:len(specs):len(specs)], extra...)
 	}
 	bag := NewErrors()
 	data := normalize(req)
