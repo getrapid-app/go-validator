@@ -1,6 +1,6 @@
 # go-validator design
 
-Status: draft for review (step 1 of 4).
+Status: core (step 1) and full rule set (step 2) implemented. Steps 3 (adapters) and 4 (release) are next.
 
 ## Goal
 
@@ -8,7 +8,7 @@ Bring Laravel's request validation to Go, written the way Go code is written, an
 
 ## Requirements
 
-- Three ways to write rules, with identical behaviour: Laravel strings (`"required|email|max:255"`), struct tags (`validate:"required|email"`), and a fluent API (`Chain().Required().Email()`).
+- Three ways to write rules, with identical behaviour: Laravel strings (`[]string{"required", "email", "max:255"}` or `"required|email|max:255"`), struct tags (`validate:"required|email"`), and a fluent API (`Chain().Required().Email()`).
 - Validate structs and `map[string]any`, including nested fields and wildcards (`address.city`, `items.*.price`).
 - Port all of Laravel's validation rules.
 - One rule interface used by built-in rules and user rules alike, with a fluent way to define custom rules.
@@ -19,8 +19,8 @@ Bring Laravel's request validation to Go, written the way Go code is written, an
 ## Architecture
 
 ```
-        rule strings ─┐
-         struct tags ─┼─► RuleSet.Build(Registry) ─► []Rule ─┐
+  []string / string ─┐
+         struct tags ─┼─► toRules(value, Registry) ─► []Rule ─┐
         fluent Chain ─┘                                      │
                                                              ▼
  struct / map / JSON ─► normalize ─► tree ─► expand(pattern) ─► run each Rule ─► Errors
@@ -47,6 +47,22 @@ type Rule interface {
 - `context.Context` is passed through so rules that do I/O (`exists`, `unique`) can honour cancellation.
 
 `Field` gives a rule the concrete path (`items.2.qty`), the pattern (`items.*.qty`), the value, whether it was present, `Lookup(other)` to read another field (wildcards resolve to the same position), and `HasRule(name)`.
+
+### Rules values
+
+`validator.Rules` is a `map[string]any` so a rule list can be written the Laravel way, without wrappers:
+
+```go
+validator.Rules{
+    "email":   []string{"required", "email", "max:255"}, // one rule per element
+    "name":    "required|string|max:255",                // pipe syntax
+    "age":     validator.Chain().Required().Integer(),   // fluent chain
+    "role":    validator.Enum(RoleAdmin, RoleUser),       // a single Rule
+    "code":    []any{"required", validator.Regex(`^[A-Z]{3}$`)}, // a mix
+}
+```
+
+Elements of a `[]string` are not split on `|`, so `"regex:/^(a|b)$/"` is safe there. Any other value type is reported as an error naming the field.
 
 ### Registry and custom rules
 
@@ -131,13 +147,35 @@ go-validator/            core package `validator`, no dependencies
 
 Built-in rules live in the root package so the fluent API reads as `validator.Chain().Required()` and there is no import cycle between rules and the registry.
 
-## What step 1 delivers
+## Zero values and `accept_zero`
 
-The full core described above, with the first group of rules to prove the design: `bail`, `nullable`, `sometimes`, `required`, `required_if`, `string`, `integer`, `numeric`, `boolean`, `array`, `email`, `min`, `max`, `between`, `in`, `same`. Tests cover the three syntaxes producing identical errors, nested structs and wildcards, custom rules through `Define` and `RuleFor`, translations and custom messages, `Abort`, and the request pattern.
+A Go struct cannot tell a missing `"qty"` from `"qty": 0`. So `required` (and the other presence rules) treat the number `0` as empty. Add `accept_zero` when 0 is a real value:
 
-## Open questions
+```go
+type Elevator struct {
+    Floor int `json:"floor" validate:"required|accept_zero|integer"`
+}
+```
 
-1. **Package name.** The import path is `github.com/getrapid-app/go-validator` and the package name is `validator`. That is the same name as `go-playground/validator`, which matters only for projects that use both. An alternative is `validation`.
-2. **Missing versus zero values in structs.** A struct can't tell a missing `"age"` from `"age": 0`, so `required` on a non-pointer `int` fails on `0`. Laravel validates the raw input instead. Proposal: the HTTP and gRPC `Bind[T]` helpers validate the raw decoded input against `T`'s rules and only then decode into `T`, while `ValidateRequest` on an existing struct keeps today's behaviour, with pointers documented as the way to express "optional".
-3. **Parameters containing `|` or `,`.** As in Laravel, `regex:/a|b/` breaks the string syntax. Proposal: support it only through the fluent API and tags with a documented escape.
-4. **Error order for `Rules` maps.** Go maps have no order, so fields are validated in sorted path order. Struct tags keep declaration order. An ordered builder could be added if declaration order matters for maps too.
+When a presence rule looks at *another* field (`required_with:qty`), 0 in that field counts as a value, as in Laravel, because that field's rules are not known there.
+
+## Rules
+
+All of Laravel's validation rules are ported except `can` (use `Authorize` in the request pattern) and the upload-error rule `uploaded`. See [RULES.md](RULES.md) for the full list with the fluent names. Notes on behaviour that differs because of Go:
+
+- Size rules measure Go numbers by value even without `numeric`. Strings are measured by value only when the field also has `numeric`, `integer` or `decimal`.
+- Date rules accept `time.Time` values and strings. `date_format` takes PHP formats (`Y-m-d`) or Go layouts (`2006-01-02`). `after:today`, `tomorrow`, `yesterday` and `now` use the clock set with `WithClock`.
+- `regex` accepts PHP-delimited patterns with flags (`/^abc$/i`) as well as Go syntax.
+- `exists` and `unique` call a `PresenceVerifier` you provide (`WithPresenceVerifier`), so the package does not depend on a database driver. `current_password` calls a `CurrentPasswordChecker`.
+- File rules work on any value implementing `File`; `*multipart.FileHeader` is converted automatically. `mimes` and `image` check the file's content, not its name.
+- After a field fails an implicit rule such as `required`, its remaining rules are skipped, as Laravel does.
+- Rules that only exist as objects in Laravel are constructors here: `Enum[T]`, `ValidEnum[T]`, `Password()`, `Dimensions()`, `Exists()/Unique()`, `AnyOf`, `When`, `RequiredIfFunc`, `ProhibitedIfFunc`, `ExcludeIfFunc`.
+
+## Decisions
+
+These were open questions in the first draft and are now settled:
+
+1. The package name stays `validator`.
+2. Missing versus zero: solved with `accept_zero` (above) rather than validating raw input.
+3. Patterns with `|` work in `[]string` rules, the fluent API and `Regex(...)`; only the pipe syntax (strings and struct tags) cannot hold them.
+4. Fields in a `Rules` map are validated in sorted path order; struct tags keep declaration order.

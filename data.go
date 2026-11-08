@@ -2,6 +2,7 @@ package validator
 
 import (
 	"encoding"
+	"mime/multipart"
 	"reflect"
 	"sort"
 	"strconv"
@@ -14,8 +15,9 @@ import (
 // lookup works on that tree, so structs and maps behave identically.
 
 var (
-	textMarshalerType = reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
-	timeType          = reflect.TypeOf(time.Time{})
+	textMarshalerType   = reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
+	timeType            = reflect.TypeOf(time.Time{})
+	multipartHeaderType = reflect.TypeOf(multipart.FileHeader{})
 )
 
 func normalize(v any) any { return normalizeValue(reflect.ValueOf(v)) }
@@ -25,10 +27,16 @@ func normalizeValue(rv reflect.Value) any {
 		if rv.IsNil() {
 			return nil
 		}
+		if f, ok := asFile(rv); ok {
+			return f
+		}
 		rv = rv.Elem()
 	}
 	if !rv.IsValid() {
 		return nil
+	}
+	if f, ok := asFile(rv); ok {
+		return f
 	}
 	if isLeafType(rv.Type()) {
 		return rv.Interface()
@@ -120,7 +128,7 @@ func fieldName(sf reflect.StructField) (name string, ok bool) {
 // isLeafType reports whether values of t are kept as-is instead of being
 // walked: []byte, time.Time and anything that marshals itself to text.
 func isLeafType(t reflect.Type) bool {
-	if t == timeType {
+	if t == timeType || t == multipartHeaderType || t.Implements(fileType) || reflect.PointerTo(t).Implements(fileType) {
 		return true
 	}
 	if t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Uint8 {

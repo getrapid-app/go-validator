@@ -31,7 +31,7 @@ func TestThreeSyntaxesAgree(t *testing.T) {
 		"The email field must not be greater than 20 characters.",
 	}}
 
-	fromString := validator.Validate(ctx, in, validator.Rules{"email": validator.Parse("required|email|max:20")})
+	fromString := validator.Validate(ctx, in, validator.Rules{"email": []string{"required", "email", "max:20"}})
 	fromChain := validator.Validate(ctx, in, validator.Rules{"email": validator.Chain().Required().Email().Max(20)})
 	fromTags := validator.Struct(ctx, in)
 
@@ -45,8 +45,8 @@ func TestThreeSyntaxesAgree(t *testing.T) {
 func TestPasses(t *testing.T) {
 	err := validator.Validate(ctx, map[string]any{"email": "jane@example.com", "age": 30.0},
 		validator.Rules{
-			"email": validator.Parse("required|email"),
-			"age":   validator.Parse("required|integer|between:18,99"),
+			"email": "required|email",
+			"age":   "required|integer|between:18,99",
 		})
 	if err != nil {
 		t.Fatalf("want nil, got %v", err)
@@ -63,8 +63,8 @@ func TestNestedAndWildcards(t *testing.T) {
 		},
 	}
 	err := validator.Validate(ctx, data, validator.Rules{
-		"address.city": validator.Parse("required"),
-		"items.*.qty":  validator.Parse("required_if:items.*.type,physical|integer|min:1"),
+		"address.city": "required",
+		"items.*.qty":  "required_if:items.*.type,physical|integer|min:1",
 	})
 	bag := mustErrors(t, err)
 	want := []string{"address.city", "items.0.qty", "items.2.qty"}
@@ -105,9 +105,9 @@ func TestStructTagsNested(t *testing.T) {
 
 func TestFlags(t *testing.T) {
 	rules := validator.Rules{
-		"a": validator.Parse("bail|integer|min:10"),
-		"b": validator.Parse("nullable|integer"),
-		"c": validator.Parse("sometimes|required"),
+		"a": "bail|integer|min:10",
+		"b": "nullable|integer",
+		"c": "sometimes|required",
 	}
 	bag := mustErrors(t, validator.Validate(ctx, map[string]any{"a": "x", "b": nil}, rules))
 	if got := bag.Get("a"); len(got) != 1 {
@@ -132,7 +132,7 @@ func TestCustomRuleDefine(t *testing.T) {
 	v := validator.New(validator.WithRegistry(reg))
 	data := map[string]any{"a": 3.0, "b": 3, "c": 5}
 	err := v.Validate(ctx, data, validator.Rules{
-		"a": validator.Parse("required|even"),
+		"a": "required|even",
 		"b": validator.Chain().Rule("even"),
 		"c": validator.List(even()),
 	})
@@ -164,7 +164,7 @@ func TestRuleForGeneric(t *testing.T) {
 func TestMessagesAttributesTranslator(t *testing.T) {
 	tr := validator.MapTranslator{"ar": {"required": "حقل :attribute مطلوب."}}
 	data := map[string]any{}
-	rules := validator.Rules{"first_name": validator.Parse("required"), "email": validator.Parse("required")}
+	rules := validator.Rules{"first_name": "required", "email": "required"}
 
 	bag := mustErrors(t, validator.Validate(ctx, data, rules,
 		validator.WithTranslator(tr, "ar"),
@@ -198,8 +198,8 @@ func TestAbort(t *testing.T) {
 }
 
 func TestUnknownRule(t *testing.T) {
-	err := validator.Validate(ctx, map[string]any{}, validator.Rules{"a": validator.Parse("required|nope")})
-	if err == nil || err.Error() != `validator: unknown rule "nope"` {
+	err := validator.Validate(ctx, map[string]any{}, validator.Rules{"a": "required|nope"})
+	if err == nil || err.Error() != `validator: unknown rule "nope" (field "a")` {
 		t.Fatalf("got %v", err)
 	}
 }

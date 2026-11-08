@@ -3,22 +3,31 @@ package validator
 import (
 	"context"
 	"fmt"
-	"net/mail"
 	"reflect"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 )
 
-// This file holds the first group of built-in rules. Step 2 of the roadmap
-// ports the rest of Laravel's rules using the same pattern: a constructor
-// for the fluent API, a type implementing Rule, and a factory registered in
-// registerBuiltins for the string syntax.
+// Built-in rules follow one pattern: an exported constructor for the fluent
+// API (Required(), Max(255), ...), a value implementing Rule, and a factory
+// registered under the Laravel name so the string syntax and struct tags
+// resolve to the very same rule. The rules are split by kind:
+//
+//	rules_presence.go  required*, present*, missing*, prohibited*, exclude*, accepted, declined, filled
+//	rules_types.go     string, integer, numeric, boolean, array, list, json, enum, ...
+//	rules_strings.go   alpha*, email, url, uuid, ip, regex, starts_with, case, ...
+//	rules_numbers.go   size, min, max, between, gt*, lt*, digits*, decimal, multiple_of
+//	rules_dates.go     date, date_format, after*, before*, date_equals, timezone
+//	rules_compare.go   same, different, confirmed, in, not_in, in_array, distinct, contains, ...
+//	rules_files.go     file, image, mimes, mimetypes, extensions, dimensions
+//	rules_db.go        exists, unique
+//	rules_password.go  password, current_password
 
 const (
-	flagBail      flagRule = "bail"
-	flagNullable  flagRule = "nullable"
-	flagSometimes flagRule = "sometimes"
+	flagBail       flagRule = "bail"
+	flagNullable   flagRule = "nullable"
+	flagSometimes  flagRule = "sometimes"
+	flagAcceptZero flagRule = "accept_zero"
 )
 
 // Bail stops validating a field after its first failure.
@@ -30,127 +39,142 @@ func Nullable() Rule { return flagNullable }
 // Sometimes only validates a field when it is present in the input.
 func Sometimes() Rule { return flagSometimes }
 
-func registerBuiltins(r *Registry) {
-	noParams := func(rule Rule) Factory {
-		return func([]string) (Rule, error) { return rule, nil }
-	}
-	r.Register("bail", noParams(Bail())).
-		Register("nullable", noParams(Nullable())).
-		Register("sometimes", noParams(Sometimes())).
-		Register("required", noParams(Required())).
-		Register("required_if", func(p []string) (Rule, error) {
-			if len(p) < 2 {
-				return nil, fmt.Errorf("needs a field and at least one value")
-			}
-			return RequiredIf(p[0], p[1:]...), nil
-		}).
-		Register("string", noParams(String())).
-		Register("integer", noParams(Integer())).
-		Register("numeric", noParams(Numeric())).
-		Register("boolean", noParams(Boolean())).
-		Register("array", noParams(Array())).
-		Register("email", noParams(Email())).
-		Register("min", numberFactory(Min)).
-		Register("max", numberFactory(Max)).
-		Register("between", func(p []string) (Rule, error) {
-			if len(p) != 2 {
-				return nil, fmt.Errorf("needs two numbers")
-			}
-			lo, err1 := strconv.ParseFloat(p[0], 64)
-			hi, err2 := strconv.ParseFloat(p[1], 64)
-			if err1 != nil || err2 != nil {
-				return nil, fmt.Errorf("needs two numbers")
-			}
-			return Between(lo, hi), nil
-		}).
-		Register("in", func(p []string) (Rule, error) { return In(p...), nil }).
-		Register("same", func(p []string) (Rule, error) {
-			if len(p) != 1 {
-				return nil, fmt.Errorf("needs one field")
-			}
-			return Same(p[0]), nil
-		})
+// AcceptZero makes the number 0 count as a value, so that required and the
+// other presence rules accept it. Without it, 0 counts as empty, which is
+// what a Go struct's zero value usually means.
+func AcceptZero() Rule { return flagAcceptZero }
 
-	for key, msg := range map[string]string{
-		"required":        "The :attribute field is required.",
-		"required_if":     "The :attribute field is required when :other is :value.",
-		"string":          "The :attribute field must be a string.",
-		"integer":         "The :attribute field must be an integer.",
-		"numeric":         "The :attribute field must be a number.",
-		"boolean":         "The :attribute field must be true or false.",
-		"array":           "The :attribute field must be an array.",
-		"email":           "The :attribute field must be a valid email address.",
-		"min.numeric":     "The :attribute field must be at least :min.",
-		"min.string":      "The :attribute field must be at least :min characters.",
-		"min.array":       "The :attribute field must have at least :min items.",
-		"max.numeric":     "The :attribute field must not be greater than :max.",
-		"max.string":      "The :attribute field must not be greater than :max characters.",
-		"max.array":       "The :attribute field must not have more than :max items.",
-		"between.numeric": "The :attribute field must be between :min and :max.",
-		"between.string":  "The :attribute field must be between :min and :max characters.",
-		"between.array":   "The :attribute field must have between :min and :max items.",
-		"in":              "The selected :attribute is invalid.",
-		"same":            "The :attribute field must match :other.",
-	} {
+func registerBuiltins(r *Registry) {
+	for _, f := range []flagRule{flagBail, flagNullable, flagSometimes, flagAcceptZero} {
+		r.Register(string(f), fixed(f))
+	}
+	registerPresence(r)
+	registerTypes(r)
+	registerStrings(r)
+	registerNumbers(r)
+	registerDates(r)
+	registerCompare(r)
+	registerFiles(r)
+	registerDB(r)
+	registerPassword(r)
+	for key, msg := range englishMessages {
 		r.SetMessage(key, msg)
 	}
 }
 
-func numberFactory(build func(float64) Rule) Factory {
+// --- factory helpers ------------------------------------------------------
+
+// fixed is a factory for rules that take no parameters.
+func fixed(rule Rule) Factory {
+	return func([]string) (Rule, error) { return rule, nil }
+}
+
+// atLeast wraps a factory with a minimum parameter count check.
+func atLeast(n int, what string, build func(p []string) (Rule, error)) Factory {
 	return func(p []string) (Rule, error) {
-		if len(p) != 1 {
-			return nil, fmt.Errorf("needs one number")
+		if len(p) < n {
+			return nil, fmt.Errorf("needs %s", what)
 		}
+		return build(p)
+	}
+}
+
+// fieldAndValues is the factory shape of rules like required_if:field,v1,v2.
+func fieldAndValues(build func(other string, values ...string) Rule) Factory {
+	return atLeast(2, "a field and at least one value", func(p []string) (Rule, error) {
+		return build(p[0], p[1:]...), nil
+	})
+}
+
+// oneField is the factory shape of rules like same:field.
+func oneField(build func(other string) Rule) Factory {
+	return atLeast(1, "a field name", func(p []string) (Rule, error) { return build(p[0]), nil })
+}
+
+// fields is the factory shape of rules like required_with:a,b.
+func fields(build func(others ...string) Rule) Factory {
+	return atLeast(1, "at least one field name", func(p []string) (Rule, error) { return build(p...), nil })
+}
+
+// values is the factory shape of rules like in:a,b.
+func values(build func(values ...string) Rule) Factory {
+	return func(p []string) (Rule, error) { return build(p...), nil }
+}
+
+func oneNumber(build func(float64) Rule) Factory {
+	return atLeast(1, "a number", func(p []string) (Rule, error) {
 		n, err := strconv.ParseFloat(p[0], 64)
 		if err != nil {
-			return nil, fmt.Errorf("needs one number: %w", err)
+			return nil, fmt.Errorf("needs a number, got %q", p[0])
 		}
 		return build(n), nil
-	}
+	})
 }
 
-// --- presence -------------------------------------------------------------
-
-type requiredRule struct{}
-
-// Required fails when the field is missing, nil, a blank string or an empty
-// array or map.
-func Required() Rule { return requiredRule{} }
-
-func (requiredRule) Name() string   { return "required" }
-func (requiredRule) Implicit() bool { return true }
-func (requiredRule) Validate(_ context.Context, f Field) error {
-	if !f.Present || isEmpty(f.Value) {
-		return Fail("required", nil)
-	}
-	return nil
+func twoNumbers(build func(a, b float64) Rule) Factory {
+	return atLeast(2, "two numbers", func(p []string) (Rule, error) {
+		a, err1 := strconv.ParseFloat(p[0], 64)
+		b, err2 := strconv.ParseFloat(p[1], 64)
+		if err1 != nil || err2 != nil {
+			return nil, fmt.Errorf("needs two numbers, got %q", strings.Join(p, ","))
+		}
+		return build(a, b), nil
+	})
 }
 
-type requiredIfRule struct {
-	other  string
-	values []string
+func oneInt(build func(int) Rule) Factory {
+	return atLeast(1, "a whole number", func(p []string) (Rule, error) {
+		n, err := strconv.Atoi(p[0])
+		if err != nil {
+			return nil, fmt.Errorf("needs a whole number, got %q", p[0])
+		}
+		return build(n), nil
+	})
 }
 
-// RequiredIf makes the field required when another field equals one of
-// values. Wildcards in other refer to the same position as this field.
-func RequiredIf(other string, values ...string) Rule {
-	return requiredIfRule{other: other, values: values}
+func twoInts(build func(a, b int) Rule) Factory {
+	return atLeast(2, "two whole numbers", func(p []string) (Rule, error) {
+		a, err1 := strconv.Atoi(p[0])
+		b, err2 := strconv.Atoi(p[1])
+		if err1 != nil || err2 != nil {
+			return nil, fmt.Errorf("needs two whole numbers, got %q", strings.Join(p, ","))
+		}
+		return build(a, b), nil
+	})
 }
 
-func (requiredIfRule) Name() string   { return "required_if" }
-func (requiredIfRule) Implicit() bool { return true }
-func (r requiredIfRule) Validate(_ context.Context, f Field) error {
-	v, ok := f.Lookup(r.other)
-	if !ok || !containsString(r.values, toString(v)) {
+// check builds a non-implicit rule from a predicate on the field. When ok
+// is false the rule fails with its own name and params.
+func check(name string, params map[string]any, ok func(f Field) bool) Rule {
+	return &funcRule{name: name, fn: func(_ context.Context, f Field) error {
+		if !ok(f) {
+			return Fail(name, params)
+		}
 		return nil
-	}
-	if !f.Present || isEmpty(f.Value) {
-		return Fail("required_if", map[string]any{"other": r.other, "value": toString(v)})
-	}
-	return nil
+	}}
 }
 
-func isEmpty(v any) bool {
+// implicitCheck is like check for implicit rules.
+func implicitCheck(name string, params func(f Field) map[string]any, ok func(f Field) bool) Rule {
+	return &funcRule{name: name, implicit: true, fn: func(_ context.Context, f Field) error {
+		if !ok(f) {
+			var p map[string]any
+			if params != nil {
+				p = params(f)
+			}
+			return Fail(name, p)
+		}
+		return nil
+	}}
+}
+
+// --- value helpers --------------------------------------------------------
+
+// attrNames is a placeholder value holding field names; each one is shown
+// with its display name (WithAttributes) in messages.
+type attrNames []string
+
+func isBlankValue(v any, acceptZero bool) bool {
 	switch t := v.(type) {
 	case nil:
 		return true
@@ -160,168 +184,19 @@ func isEmpty(v any) bool {
 		return len(t) == 0
 	case map[string]any:
 		return len(t) == 0
+	case File:
+		return t.FileName() == "" && t.FileSize() == 0
+	case bool:
+		return false
+	}
+	if !acceptZero {
+		rv := reflect.ValueOf(v)
+		if isNumberKind(rv.Kind()) && rv.IsZero() {
+			return true
+		}
 	}
 	return false
 }
-
-// --- types ----------------------------------------------------------------
-
-// String fails unless the value is a string.
-func String() Rule {
-	return NewRule("string", func(_ context.Context, f Field) error {
-		if _, ok := f.Value.(string); !ok {
-			return Fail("string", nil)
-		}
-		return nil
-	})
-}
-
-// Integer passes Go integers, whole floats (as JSON numbers decode) and
-// strings holding an integer.
-func Integer() Rule {
-	return NewRule("integer", func(_ context.Context, f Field) error {
-		if _, ok := toInt(f.Value); !ok {
-			return Fail("integer", nil)
-		}
-		return nil
-	})
-}
-
-// Numeric passes Go numbers and numeric strings.
-func Numeric() Rule {
-	return NewRule("numeric", func(_ context.Context, f Field) error {
-		if _, ok := toFloat(f.Value); !ok {
-			return Fail("numeric", nil)
-		}
-		return nil
-	})
-}
-
-// Boolean passes true, false, 1, 0, "1", "0", "true" and "false".
-func Boolean() Rule {
-	return NewRule("boolean", func(_ context.Context, f Field) error {
-		switch v := f.Value.(type) {
-		case bool:
-			return nil
-		case string:
-			if containsString([]string{"1", "0", "true", "false"}, v) {
-				return nil
-			}
-		default:
-			if n, ok := toFloat(v); ok && (n == 0 || n == 1) {
-				return nil
-			}
-		}
-		return Fail("boolean", nil)
-	})
-}
-
-// Array passes lists and maps.
-func Array() Rule {
-	return NewRule("array", func(_ context.Context, f Field) error {
-		switch f.Value.(type) {
-		case []any, map[string]any:
-			return nil
-		}
-		return Fail("array", nil)
-	})
-}
-
-// --- formats --------------------------------------------------------------
-
-// Email passes a bare email address such as "jane@example.com".
-func Email() Rule {
-	return NewRule("email", func(_ context.Context, f Field) error {
-		s, ok := f.Value.(string)
-		if !ok {
-			return Fail("email", nil)
-		}
-		addr, err := mail.ParseAddress(s)
-		if err != nil || addr.Address != s {
-			return Fail("email", nil)
-		}
-		return nil
-	})
-}
-
-// --- sizes ----------------------------------------------------------------
-
-// sizeOf measures a value the way Laravel's size rules do: numbers by value,
-// strings by character count (or by value when the field also has the
-// numeric or integer rule), arrays by length.
-func sizeOf(f Field) (size float64, kind string, ok bool) {
-	switch v := f.Value.(type) {
-	case string:
-		if f.HasRule("numeric") || f.HasRule("integer") {
-			n, ok := toFloat(v)
-			return n, "numeric", ok
-		}
-		return float64(utf8.RuneCountInString(v)), "string", true
-	case []any:
-		return float64(len(v)), "array", true
-	case map[string]any:
-		return float64(len(v)), "array", true
-	}
-	n, ok := toFloat(f.Value)
-	return n, "numeric", ok
-}
-
-type sizeRule struct {
-	name   string
-	lo, hi float64
-	hasLo  bool
-	hasHi  bool
-}
-
-func (r sizeRule) Name() string { return r.name }
-func (r sizeRule) Validate(_ context.Context, f Field) error {
-	size, kind, ok := sizeOf(f)
-	params := map[string]any{"min": r.lo, "max": r.hi}
-	if !ok {
-		return Fail(r.name+".numeric", params)
-	}
-	if (r.hasLo && size < r.lo) || (r.hasHi && size > r.hi) {
-		return Fail(r.name+"."+kind, params)
-	}
-	return nil
-}
-
-// Min fails when the value's size is below n.
-func Min(n float64) Rule { return sizeRule{name: "min", lo: n, hasLo: true} }
-
-// Max fails when the value's size is above n.
-func Max(n float64) Rule { return sizeRule{name: "max", hi: n, hasHi: true} }
-
-// Between fails when the value's size is outside [lo, hi].
-func Between(lo, hi float64) Rule {
-	return sizeRule{name: "between", lo: lo, hi: hi, hasLo: true, hasHi: true}
-}
-
-// --- comparisons ----------------------------------------------------------
-
-// In fails unless the value, as text, is one of values.
-func In(values ...string) Rule {
-	vals := append([]string(nil), values...)
-	return NewRule("in", func(_ context.Context, f Field) error {
-		if !containsString(vals, toString(f.Value)) {
-			return Fail("in", map[string]any{"values": vals})
-		}
-		return nil
-	})
-}
-
-// Same fails unless the value equals the value of another field.
-func Same(other string) Rule {
-	return NewRule("same", func(_ context.Context, f Field) error {
-		o, _ := f.Lookup(other)
-		if !reflect.DeepEqual(o, f.Value) {
-			return Fail("same", map[string]any{"other": other})
-		}
-		return nil
-	})
-}
-
-// --- helpers --------------------------------------------------------------
 
 func containsString(list []string, s string) bool {
 	for _, v := range list {
@@ -330,6 +205,22 @@ func containsString(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// matchesAny reports whether v, compared as text the way Laravel does,
+// equals one of values. "null" matches nil, and booleans match "true",
+// "false", "1" and "0".
+func matchesAny(v any, values []string) bool {
+	if v == nil {
+		return containsString(values, "null")
+	}
+	if b, ok := v.(bool); ok {
+		if b {
+			return containsString(values, "true") || containsString(values, "1")
+		}
+		return containsString(values, "false") || containsString(values, "0")
+	}
+	return containsString(values, toString(v))
 }
 
 func toString(v any) string {
@@ -342,6 +233,12 @@ func toString(v any) string {
 		return formatFloat(t)
 	case float32:
 		return formatFloat(float64(t))
+	case fmt.Stringer:
+		return t.String()
+	}
+	rv := reflect.ValueOf(v)
+	if rv.Kind() == reflect.String {
+		return rv.String()
 	}
 	return fmt.Sprint(v)
 }
@@ -349,11 +246,11 @@ func toString(v any) string {
 func formatFloat(f float64) string { return strconv.FormatFloat(f, 'f', -1, 64) }
 
 func toFloat(v any) (float64, bool) {
-	if s, ok := v.(string); ok {
-		n, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
-		return n, err == nil
-	}
-	if _, isBool := v.(bool); isBool {
+	switch t := v.(type) {
+	case string:
+		n, err := strconv.ParseFloat(strings.TrimSpace(t), 64)
+		return n, err == nil && strings.TrimSpace(t) != ""
+	case bool, nil:
 		return 0, false
 	}
 	return As[float64](v)
@@ -364,5 +261,27 @@ func toInt(v any) (int64, bool) {
 		n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
 		return n, err == nil
 	}
+	if _, ok := v.(bool); ok {
+		return 0, false
+	}
 	return As[int64](v)
+}
+
+// asStrings turns a list value into strings, for rules like contains.
+func asStrings(v any) ([]string, bool) {
+	switch t := v.(type) {
+	case []any:
+		out := make([]string, len(t))
+		for i, x := range t {
+			out[i] = toString(x)
+		}
+		return out, true
+	case map[string]any:
+		out := make([]string, 0, len(t))
+		for _, x := range t {
+			out = append(out, toString(x))
+		}
+		return out, true
+	}
+	return nil, false
 }

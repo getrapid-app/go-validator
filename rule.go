@@ -39,7 +39,71 @@ type RuleSet interface {
 
 // Rules maps a field path to its rules. Paths use dot notation and may
 // contain wildcards: "email", "address.city", "items.*.price".
-type Rules map[string]RuleSet
+//
+// A value can be any of:
+//
+//	[]string{"required", "email", "max:255"}  // one rule per element
+//	"required|email|max:255"                  // Laravel pipe syntax
+//	validator.Chain().Required().Email()      // fluent chain (any RuleSet)
+//	validator.Required()                      // a single Rule
+//	[]validator.Rule{...}                     // several Rule values
+//	[]any{"required", myRule, "max:255"}      // a mix of the above
+//
+// Elements of a []string are not split on "|", so a rule such as
+// "regex:/^(a|b)$/" is safe there.
+type Rules map[string]any
+
+// toRules builds the rules for one field from any of the forms Rules accepts.
+func toRules(spec any, r *Registry) ([]Rule, error) {
+	switch s := spec.(type) {
+	case nil:
+		return nil, nil
+	case RuleSet:
+		return s.Build(r)
+	case Rule:
+		return []Rule{s}, nil
+	case string:
+		return parsed(s).Build(r)
+	case []string:
+		out := make([]Rule, 0, len(s))
+		for _, one := range s {
+			rule, err := parseOne(one, r)
+			if err != nil {
+				return nil, err
+			}
+			if rule != nil {
+				out = append(out, rule)
+			}
+		}
+		return out, nil
+	case []Rule:
+		return s, nil
+	case []RuleSet:
+		var out []Rule
+		for _, set := range s {
+			rules, err := set.Build(r)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, rules...)
+		}
+		return out, nil
+	case []any:
+		var out []Rule
+		for _, item := range s {
+			if str, ok := item.(string); ok {
+				item = []string{str}
+			}
+			rules, err := toRules(item, r)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, rules...)
+		}
+		return out, nil
+	}
+	return nil, fmt.Errorf("validator: unsupported rules value of type %T", spec)
+}
 
 // Failure is a validation failure that carries a message key and the values
 // for its placeholders. The key is usually the rule name, or a variant such
@@ -106,8 +170,9 @@ func RuleFor[T any](name string, fn func(ctx context.Context, value T, f Field) 
 	}}
 }
 
-// As converts v to T. It accepts values that already are T, and converts
-// between numeric kinds when no information is lost (so a JSON float64 of
+// As converts v to T. It accepts values that already are T, converts
+// between string types (so "active" converts to a named type Status), and
+// converts between numeric kinds when no information is lost (so a JSON float64 of
 // 3 converts to int, while 3.5 does not).
 func As[T any](v any) (T, bool) {
 	var zero T
@@ -119,6 +184,10 @@ func As[T any](v any) (T, bool) {
 	}
 	target := reflect.TypeOf((*T)(nil)).Elem()
 	rv := reflect.ValueOf(v)
+	// Named string types, such as enums: type Status string.
+	if rv.Kind() == reflect.String && target.Kind() == reflect.String {
+		return rv.Convert(target).Interface().(T), true
+	}
 	if !isNumberKind(rv.Kind()) || !isNumberKind(target.Kind()) {
 		return zero, false
 	}

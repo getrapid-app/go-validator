@@ -3,8 +3,8 @@
 // Rules can be written three ways, and all three compile to the same Rule
 // values, so they behave identically:
 //
-//	// 1. Laravel string syntax
-//	validator.Rules{"email": validator.Parse("required|email|max:255")}
+//	// 1. Laravel rule lists (or "required|email|max:255")
+//	validator.Rules{"email": []string{"required", "email", "max:255"}}
 //
 //	// 2. Struct tags (same syntax as the strings)
 //	type SignUp struct {
@@ -22,8 +22,10 @@ package validator
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Validator holds the configuration for running validations: the rule
@@ -35,6 +37,9 @@ type Validator struct {
 	locale     string
 	messages   map[string]string
 	attributes map[string]string
+	presence   PresenceVerifier
+	now        func() time.Time
+	password   CurrentPasswordChecker
 }
 
 // Option configures a Validator, either once in New or per call.
@@ -63,6 +68,21 @@ func WithMessages(m map[string]string) Option {
 func WithAttributes(m map[string]string) Option {
 	return func(v *Validator) { v.attributes = merge(v.attributes, m) }
 }
+
+// WithPresenceVerifier sets the lookup used by the exists and unique rules,
+// typically backed by your database.
+func WithPresenceVerifier(p PresenceVerifier) Option {
+	return func(v *Validator) { v.presence = p }
+}
+
+// WithCurrentPassword sets the check used by the current_password rule.
+func WithCurrentPassword(c CurrentPasswordChecker) Option {
+	return func(v *Validator) { v.password = c }
+}
+
+// WithClock sets the function date rules use for "now", "today", "tomorrow"
+// and "yesterday". It is mostly useful in tests.
+func WithClock(now func() time.Time) Option { return func(v *Validator) { v.now = now } }
 
 func merge(dst, src map[string]string) map[string]string {
 	out := make(map[string]string, len(dst)+len(src))
@@ -143,12 +163,12 @@ func (v *Validator) compile(rules Rules) ([]fieldSpec, error) {
 	sort.Strings(patterns)
 	specs := make([]fieldSpec, 0, len(patterns))
 	for _, p := range patterns {
-		if rules[p] == nil {
-			continue
-		}
-		built, err := rules[p].Build(v.registry)
+		built, err := toRules(rules[p], v.registry)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w (field %q)", err, p)
+		}
+		if len(built) == 0 {
+			continue
 		}
 		specs = append(specs, fieldSpec{pattern: p, rules: built})
 	}
@@ -179,26 +199,39 @@ func (v *Validator) field(ctx context.Context, root any, spec fieldSpec, path st
 	value, present := lookup(root, path)
 	var bail, nullable, sometimes bool
 	for _, r := range spec.rules {
-		if fr, ok := r.(flagRule); ok {
-			switch fr {
-			case flagBail:
-				bail = true
-			case flagNullable:
-				nullable = true
-			case flagSometimes:
-				sometimes = true
-			}
+		switch r {
+		case flagBail:
+			bail = true
+		case flagNullable:
+			nullable = true
+		case flagSometimes:
+			sometimes = true
 		}
 	}
 	if sometimes && !present {
 		return nil
 	}
-	f := Field{Path: path, Pattern: spec.pattern, Value: value, Present: present, root: root, rules: spec.rules}
+	f := Field{Path: path, Pattern: spec.pattern, Value: value, Present: present, root: root, rules: spec.rules, v: v}
+	for _, r := range spec.rules {
+		if ex, ok := r.(excluder); ok {
+			excluded, err := ex.excluded(ctx, f)
+			if err != nil {
+				return err
+			}
+			if excluded {
+				return nil
+			}
+		}
+	}
 	for _, r := range spec.rules {
 		if _, ok := r.(flagRule); ok {
 			continue
 		}
-		if !isImplicit(r) {
+		if _, ok := r.(excluder); ok {
+			continue
+		}
+		implicit := isImplicit(r)
+		if !implicit {
 			if !present || isBlankString(value) {
 				continue
 			}
@@ -214,7 +247,10 @@ func (v *Validator) field(ctx context.Context, root any, spec fieldSpec, path st
 			return cause
 		}
 		bag.Add(path, v.failureMessage(f, r, err))
-		if bail {
+		// Like Laravel: stop after the first failure with bail, and after a
+		// failed implicit rule such as required, since the rest would only
+		// repeat that the value is missing.
+		if bail || implicit {
 			break
 		}
 	}
