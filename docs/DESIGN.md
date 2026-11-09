@@ -1,6 +1,6 @@
 # go-validator design
 
-Status: released as v0.2.0.
+Status: released as v0.2.1.
 
 ## Goal
 
