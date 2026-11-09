@@ -146,14 +146,16 @@ Over HTTP, `nethttp.Localize(mux)` picks each request's language from `Accept-La
 
 ## Performance
 
-These numbers come from `go test -bench=. -benchmem` on a 4 vCPU Linux VM, so treat them as rough:
+These numbers come from `go test -bench . -benchmem` on a 4 vCPU Linux VM, so treat them as rough. The comparison uses the same input and rules in both libraries; see [benchmarks/](benchmarks/).
 
-| Benchmark | Time | Allocations |
+| Benchmark | go-validator | go-playground/validator v10 |
 |---|---|---|
-| Struct with 4 tagged fields and 3 items | 13 µs | 156 |
-| Map with 4 fields | 5 µs | 65 |
-| Struct with 100 wildcard items | 297 µs | 3,469 |
-| `nethttp.Bind` of a small JSON body | 17 µs | 143 |
+| Struct, 4 fields + 3 items, valid | 4.2 µs, 31 allocs | 2.8 µs, 25 allocs |
+| Struct with 100 items, valid | 84 µs, 521 allocs | 42 µs, 510 allocs |
+| Struct, invalid, with messages | 4.6 µs, 48 allocs | 4.1 µs, 65 allocs |
+| Map with 4 fields | 1.7 µs, 9 allocs | 1.7 µs, 10 allocs |
+
+go-validator first turns a struct into a tree of maps and lists, which is what lets structs, maps, wildcards and cross-field rules behave the same way. That copy is most of the remaining gap on large structs.
 
 ## Docs
 

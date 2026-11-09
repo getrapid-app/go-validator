@@ -3,7 +3,6 @@ package validator
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 )
 
@@ -53,16 +52,13 @@ func (v *Validator) Translate(ctx context.Context, key string, params map[string
 	if !ok {
 		return key
 	}
-	names := make([]string, 0, len(params))
-	for k := range params {
-		names = append(names, k)
-	}
-	sort.Slice(names, func(i, j int) bool { return len(names[i]) > len(names[j]) })
-	pairs := make([]string, 0, 2*len(names))
-	for _, k := range names {
-		pairs = append(pairs, ":"+k, formatParam(params[k]))
-	}
-	return strings.NewReplacer(pairs...).Replace(tmpl)
+	return fill(tmpl, func(rest string) (int, string, bool) {
+		k, ok := longestKey(rest, params)
+		if !ok {
+			return 0, "", false
+		}
+		return len(k), formatParam(params[k]), true
+	})
 }
 
 // Translate translates key with the default validator. See
@@ -117,24 +113,38 @@ func (v *Validator) message(f Field, ruleName string, fail *Failure) string {
 // (WithMessages, a request's Messages) or in the translations' "custom"
 // section.
 func (v *Validator) customMessage(f Field, keys []string) (string, bool) {
-	for _, k := range keys {
-		for _, c := range []string{f.Path + "." + k, f.Pattern + "." + k, k} {
-			if m, ok := v.messages[c]; ok {
-				return m, true
+	if len(v.messages) > 0 {
+		for _, k := range keys {
+			for _, c := range [...]string{f.Path + "." + k, f.Pattern + "." + k, k} {
+				if m, ok := v.messages[c]; ok {
+					return m, true
+				}
 			}
 		}
 	}
-	if v.translator == nil {
+	if !v.translatorMayHave("custom.") {
 		return "", false
 	}
 	for _, k := range keys {
-		for _, c := range []string{f.Path + "." + k, f.Pattern + "." + k} {
+		for _, c := range [...]string{f.Path + "." + k, f.Pattern + "." + k} {
 			if m, ok := v.translator.Translate(v.locale, "custom."+c); ok {
 				return m, true
 			}
 		}
 	}
 	return "", false
+}
+
+// translatorMayHave reports whether the translator may hold keys with
+// prefix. Only Translations can tell; other translators are always asked.
+func (v *Validator) translatorMayHave(prefix string) bool {
+	if v.translator == nil {
+		return false
+	}
+	if t, ok := v.translator.(*Translations); ok {
+		return t.hasPrefix(prefix)
+	}
+	return true
 }
 
 // translate looks key up in the translator, then in the registry's default
@@ -159,14 +169,16 @@ func (v *Validator) fallbackMessage() string {
 }
 
 func (v *Validator) replace(tmpl string, f Field, params map[string]any) string {
-	pairs := []string{":attribute", v.attributeName(f.Path, f.Pattern)}
-	// Longest names first, so ":min_digits" is not cut by ":min".
-	names := make([]string, 0, len(params))
-	for k := range params {
-		names = append(names, k)
-	}
-	sort.Slice(names, func(i, j int) bool { return len(names[i]) > len(names[j]) })
-	for _, k := range names {
+	return fill(tmpl, func(rest string) (int, string, bool) {
+		// :attribute is matched first, then the longest parameter name, so
+		// ":min_digits" is not cut by ":min".
+		if strings.HasPrefix(rest, "attribute") {
+			return len("attribute"), v.attributeName(f.Path, f.Pattern), true
+		}
+		k, ok := longestKey(rest, params)
+		if !ok {
+			return 0, "", false
+		}
 		val := params[k]
 		switch t := val.(type) {
 		case attrNames:
@@ -180,9 +192,53 @@ func (v *Validator) replace(tmpl string, f Field, params map[string]any) string 
 				val = v.attributeName(t, t)
 			}
 		}
-		pairs = append(pairs, ":"+k, formatParam(val))
+		return len(k), formatParam(val), true
+	})
+}
+
+// fill replaces each ":name" placeholder in tmpl in one pass. value is
+// called with the text after each colon and returns the length of the name
+// it recognised and its replacement. Replacement text is not scanned again.
+// Values are only computed for placeholders the template uses.
+func fill(tmpl string, value func(rest string) (int, string, bool)) string {
+	var b strings.Builder
+	last := 0
+	for i := 0; i < len(tmpl); {
+		j := strings.IndexByte(tmpl[i:], ':')
+		if j < 0 {
+			break
+		}
+		j += i
+		n, val, ok := value(tmpl[j+1:])
+		if !ok {
+			i = j + 1
+			continue
+		}
+		if last == 0 {
+			b.Grow(len(tmpl) + len(val))
+		}
+		b.WriteString(tmpl[last:j])
+		b.WriteString(val)
+		i = j + 1 + n
+		last = i
 	}
-	return strings.NewReplacer(pairs...).Replace(tmpl)
+	if last == 0 {
+		return tmpl
+	}
+	b.WriteString(tmpl[last:])
+	return b.String()
+}
+
+// longestKey returns the longest non-empty key of params that text starts
+// with.
+func longestKey(text string, params map[string]any) (string, bool) {
+	best := ""
+	for k := range params {
+		if len(k) > len(best) && strings.HasPrefix(text, k) {
+			best = k
+		}
+	}
+	return best, best != ""
 }
 
 // attributeName returns the display name of a field: a custom attribute name
@@ -194,7 +250,7 @@ func (v *Validator) attributeName(path, pattern string) string {
 	if n, ok := v.attributes[pattern]; ok {
 		return n
 	}
-	if v.translator != nil {
+	if v.translatorMayHave("attributes.") {
 		if n, ok := v.translator.Translate(v.locale, "attributes."+path); ok {
 			return n
 		}

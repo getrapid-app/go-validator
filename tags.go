@@ -45,7 +45,7 @@ func (v *Validator) tagSpecs(s any) ([]fieldSpec, error) {
 		if err != nil {
 			return nil, err
 		}
-		specs = append(specs, fieldSpec{pattern: e.pattern, rules: rules})
+		specs = append(specs, newFieldSpec(e.pattern, rules))
 	}
 	compiledCache.Store(key, specs)
 	return specs, nil

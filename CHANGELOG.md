@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- Faster validation with far fewer allocations, with no change in behaviour. On the package benchmarks: structs 13 µs → 4 µs (156 → 31 allocations), 100 wildcard items 290 µs → 75 µs (3,469 → 521), maps 5.2 µs → 2.2 µs (65 → 17), failures with messages 22 µs → 4.6 µs (204 → 48).
+  - Rules written as strings are parsed once per registry version and cached (bounded).
+  - Per-type struct information is cached; plain values skip reflection lookups; already-normalised input (such as decoded JSON) is no longer copied.
+  - Paths are looked up without splitting, wildcard paths are built in one reused buffer, and paths for `list.*.field` patterns are shared between validations.
+  - Messages are filled in one pass instead of with a `strings.Replacer`, and size rules build their placeholders only on failure.
+  - `As` converts built-in numbers without reflection.
+
+### Added
+
+- `benchmarks/`, a separate module comparing go-validator with go-playground/validator v10.
+
 ## [0.2.1] - 2026-11-09
 
 ### Added
