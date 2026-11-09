@@ -5,7 +5,7 @@
 
 Laravel-style validation for Go. Write rules the way you would in Laravel, and use them in an HTTP handler, a gRPC service, a CLI or a queue worker.
 
-- **Every Laravel rule.** That's 100+ rules, from `required_if` and `exclude_unless` to `distinct`, `dimensions` and `unique`, with Laravel's messages. See [docs/RULES.md](docs/RULES.md).
+- **Every Laravel rule.** That's 100+ rules, from `required_if` and `exclude_unless` to `distinct`, `dimensions` and `unique`, with Laravel's messages in English and Arabic, and your own languages on top. See [docs/RULES.md](docs/RULES.md).
 - **Three ways to write rules, one behaviour.** You can use rule lists (`[]string{"required", "email"}`), struct tags (`validate:"required|email"`) or a fluent API (`Chain().Required().Email()`).
 - **Structs and maps**, with nested fields and wildcards (`items.*.price`).
 - **One rule interface** for built-in and custom rules, with a fluent `Define` for your own.
@@ -116,13 +116,33 @@ Failures become `InvalidArgument` with an `errdetails.BadRequest` that lists eac
 
 ## Translations
 
+English and Arabic are built in. Pick the language per validator or per call:
+
 ```go
-v := validator.New(validator.WithTranslator(validator.MapTranslator{
-    "ar": {"required": "حقل :attribute مطلوب."},
-}, "ar"))
+v := validator.New(validator.WithLocale("ar"))
+err := validator.Validate(validator.ContextWithLocale(ctx, "ar"), input, rules)
 ```
 
-Custom messages (`WithMessages`, keyed `email.required` or `required`) and display names (`WithAttributes`) work like Laravel's `messages()` and `attributes()`.
+Add your own language, or override built-in messages with your team's wording or dialect. A missing key falls back from `ar-EG` to `ar`, then to English:
+
+```go
+validator.AddTranslations("ar-EG", map[string]string{
+    "required":         "لازم تكتب :attribute.",
+    "attributes.email": "الإيميل",
+})
+validator.AddTranslations("en", map[string]string{"required": "Please fill in :attribute."})
+```
+
+Or keep translations in JSON files shaped like Laravel's `lang/<locale>/validation.php`, with `attributes` and `custom` sections, and load them at start-up:
+
+```go
+//go:embed lang/*.json
+var langFiles embed.FS
+
+validator.LoadTranslations(langFiles, "lang/*.json") // lang/fr.json adds "fr"
+```
+
+Over HTTP, `nethttp.Localize(mux)` picks each request's language from `Accept-Language`. Custom messages in code (`WithMessages`, keyed `email.required` or `required`) and display names (`WithAttributes`) work like Laravel's `messages()` and `attributes()` and win over translations. To use another i18n library, implement `validator.Translator`.
 
 ## Performance
 

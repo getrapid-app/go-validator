@@ -1,7 +1,9 @@
 package validator
 
 // englishMessages are the default messages, ported from Laravel's
-// lang/en/validation.php. Translators override them per locale.
+// lang/en/validation.php. They are each rule's registered default, so a
+// locale without a message falls back to them. "invalid" is used when no
+// message exists at all.
 var englishMessages = map[string]string{
 	"accepted":               "The :attribute field must be accepted.",
 	"accepted_if":            "The :attribute field must be accepted when :other is :value.",
@@ -58,6 +60,7 @@ var englishMessages = map[string]string{
 	"in":                     "The selected :attribute is invalid.",
 	"in_array":               "The :attribute field must exist in :other.",
 	"in_array_keys":          "The :attribute field must contain at least one of the following keys: :values.",
+	"invalid":                "The :attribute field is invalid.",
 	"integer":                "The :attribute field must be an integer.",
 	"ip":                     "The :attribute field must be a valid IP address.",
 	"ipv4":                   "The :attribute field must be a valid IPv4 address.",
