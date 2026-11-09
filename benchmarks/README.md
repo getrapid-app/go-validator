@@ -9,8 +9,7 @@ cd benchmarks
 go test -bench . -benchmem
 ```
 
-go-playground/validator v10.30 needs Go 1.26 or later, so this module
-does too; the main module still supports Go 1.22.
+Like the main module, it needs Go 1.26 or later.
 
 `BenchmarkStructInvalid` includes turning each failure into a message
 for both libraries, since that is what an API returns.

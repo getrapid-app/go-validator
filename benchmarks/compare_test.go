@@ -73,7 +73,7 @@ func BenchmarkStructValid(b *testing.B) {
 	o := valid(3)
 	b.Run("go-validator", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			if err := validator.Struct(ctx, &o); err != nil {
 				b.Fatal(err)
 			}
@@ -81,7 +81,7 @@ func BenchmarkStructValid(b *testing.B) {
 	})
 	b.Run("playground", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			if err := pg.Struct(&o); err != nil {
 				b.Fatal(err)
 			}
@@ -93,7 +93,7 @@ func BenchmarkStruct100Items(b *testing.B) {
 	o := valid(100)
 	b.Run("go-validator", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			if err := validator.Struct(ctx, &o); err != nil {
 				b.Fatal(err)
 			}
@@ -101,7 +101,7 @@ func BenchmarkStruct100Items(b *testing.B) {
 	})
 	b.Run("playground", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			if err := pg.Struct(&o); err != nil {
 				b.Fatal(err)
 			}
@@ -115,7 +115,7 @@ func BenchmarkStructInvalid(b *testing.B) {
 	o := invalid()
 	b.Run("go-validator", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			bag, ok := validator.ErrorsOf(validator.Struct(ctx, &o))
 			if !ok || bag.Len() == 0 {
 				b.Fatal("want errors")
@@ -124,7 +124,7 @@ func BenchmarkStructInvalid(b *testing.B) {
 	})
 	b.Run("playground", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			errs, ok := pg.Struct(&o).(playground.ValidationErrors)
 			if !ok || len(errs) == 0 {
 				b.Fatal("want errors")
@@ -153,7 +153,7 @@ func BenchmarkMap(b *testing.B) {
 	}
 	b.Run("go-validator", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			if err := validator.Validate(ctx, in, ours); err != nil {
 				b.Fatal(err)
 			}
@@ -161,7 +161,7 @@ func BenchmarkMap(b *testing.B) {
 	})
 	b.Run("playground", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			if errs := pg.ValidateMap(in, theirs); len(errs) != 0 {
 				b.Fatal(errs)
 			}

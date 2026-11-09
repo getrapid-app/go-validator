@@ -23,6 +23,7 @@ package validator
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -88,12 +89,8 @@ func WithClock(now func() time.Time) Option { return func(v *Validator) { v.now 
 
 func merge(dst, src map[string]string) map[string]string {
 	out := make(map[string]string, len(dst)+len(src))
-	for k, val := range dst {
-		out[k] = val
-	}
-	for k, val := range src {
-		out[k] = val
-	}
+	maps.Copy(out, dst)
+	maps.Copy(out, src)
 	return out
 }
 

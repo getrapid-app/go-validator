@@ -256,7 +256,7 @@ func Parse(rules string) RuleSet { return parsed(rules) }
 
 func (p parsed) Build(r *Registry) ([]Rule, error) {
 	var out []Rule
-	for _, part := range strings.Split(string(p), "|") {
+	for part := range strings.SplitSeq(string(p), "|") {
 		rule, err := parseOne(part, r)
 		if err != nil {
 			return nil, err

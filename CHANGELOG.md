@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Changed
 
+- **Go 1.26 or later is now required** (was 1.22), for the core module and `grpcvalidator`. Go 1.26 and 1.27 are the releases the Go team currently supports. Benchmarks showed no speed difference from the `go` line itself; speed depends on the toolchain an application builds with.
+- Internals use newer standard library APIs (`reflect.TypeFor`, reflect field iterators, `errors.AsType`, `slices`, `maps`, `strings.SplitSeq`) and benchmarks use `testing.B.Loop`. No behaviour change.
+
+## [0.2.3] - 2026-11-09
+
+### Changed
+
 - Faster validation with fewer allocations again, with no change in behaviour or API. On the package benchmarks: structs 3.9 µs → 3.0 µs (31 → 14 allocations), 100 wildcard items 71 µs → 59 µs (521 → 309), maps 2.2 µs → 1.1 µs (17 → 0), failures with messages 4.5 µs → 3.7 µs (48 → 26).
   - Plain `local@domain` email addresses are checked without `net/mail`; anything else still goes through it, and a fuzz test checks both agree.
   - A struct reached through a pointer or a slice is copied once before its fields are read, instead of each string or number field being copied to the heap.
@@ -73,6 +80,7 @@ First release.
 - `nethttp` adapter: request input decoding (JSON, forms, multipart files, query), `Bind`, `Handle`, and Laravel-shaped 422/403/400 responses.
 - `grpcvalidator` module: unary and stream interceptors returning `InvalidArgument` with field violations.
 
+[0.2.3]: https://github.com/getrapid-app/go-validator/releases/tag/v0.2.3
 [0.2.2]: https://github.com/getrapid-app/go-validator/releases/tag/v0.2.2
 [0.2.1]: https://github.com/getrapid-app/go-validator/releases/tag/v0.2.1
 [0.2.0]: https://github.com/getrapid-app/go-validator/releases/tag/v0.2.0

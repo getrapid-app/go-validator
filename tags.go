@@ -68,7 +68,9 @@ func collectTags(t reflect.Type, prefix string, seen map[reflect.Type]bool, out 
 	}
 	seen[t] = true
 	defer delete(seen, t)
-	for i := 0; i < t.NumField(); i++ {
+	// An index loop rather than t.Fields(): the iterator's closure would
+	// make out escape, costing tagSpecs an allocation on every call.
+	for i := range t.NumField() {
 		sf := t.Field(i)
 		name, ok := fieldName(sf)
 		if !ok {

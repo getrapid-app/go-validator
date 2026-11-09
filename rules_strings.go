@@ -214,19 +214,19 @@ func goPattern(p string) string {
 		return p
 	}
 	body, flags := p[1:end], p[end+1:]
-	var goFlags string
+	var goFlags strings.Builder
 	for _, c := range flags {
 		switch c {
 		case 'i', 'm', 's', 'U':
-			goFlags += string(c)
+			goFlags.WriteRune(c)
 		case 'u', 'D', 'x':
 			// u: Go is always UTF-8; D and x: closest behaviour is to ignore.
 		default:
 			return p
 		}
 	}
-	if goFlags != "" {
-		return "(?" + goFlags + ")" + body
+	if goFlags.Len() > 0 {
+		return "(?" + goFlags.String() + ")" + body
 	}
 	return body
 }

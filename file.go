@@ -31,7 +31,7 @@ func (m multipartFile) Open() (io.ReadCloser, error) { return m.h.Open() }
 // FromMultipart wraps a multipart file header as a File.
 func FromMultipart(h *multipart.FileHeader) File { return multipartFile{h} }
 
-var fileType = reflect.TypeOf((*File)(nil)).Elem()
+var fileType = reflect.TypeFor[File]()
 
 func asFile(rv reflect.Value) (File, bool) {
 	if !rv.IsValid() || !rv.CanInterface() {
