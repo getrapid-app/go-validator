@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - **Go 1.26 or later is now required** (was 1.22), for the core module and `grpcvalidator`. Go 1.26 and 1.27 are the releases the Go team currently supports. Benchmarks showed no speed difference from the `go` line itself; speed depends on the toolchain an application builds with.
 - Internals use newer standard library APIs (`reflect.TypeFor`, reflect field iterators, `errors.AsType`, `slices`, `maps`, `strings.SplitSeq`) and benchmarks use `testing.B.Loop`. No behaviour change.
+- CI tests on Go 1.26 and the latest stable release, and now also runs the go-playground comparison module (`benchmarks/`), which needed Go 1.26 and so could not run on the old 1.22 job.
 
 ## [0.2.3] - 2026-11-09
 
