@@ -141,3 +141,16 @@ func TestRegistrySetMessageStillApplies(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestTranslateKey(t *testing.T) {
+	got := validator.Translate(validator.ContextWithLocale(ctx, "ar"), "http.more_errors", map[string]any{"message": "x", "count": 3})
+	if got != "x (و 3 أخطاء أخرى)" {
+		t.Errorf("ar: %q", got)
+	}
+	if got := validator.Translate(ctx, "http.unauthorized", nil); got != "This action is unauthorized." {
+		t.Errorf("en: %q", got)
+	}
+	if got := validator.Translate(ctx, "no.such.key", nil); got != "no.such.key" {
+		t.Errorf("missing: %q", got)
+	}
+}

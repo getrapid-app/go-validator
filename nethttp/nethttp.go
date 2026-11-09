@@ -10,9 +10,9 @@
 package nethttp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 
@@ -27,7 +27,7 @@ import (
 //	func createOrder(w http.ResponseWriter, r *http.Request) {
 //		req, err := nethttp.Bind[CreateOrder](r)
 //		if err != nil {
-//			nethttp.WriteError(w, err)
+//			nethttp.WriteErrorFor(w, r, err)
 //			return
 //		}
 //		...
@@ -58,7 +58,8 @@ func Validate(r *http.Request, rules validator.Rules, opts ...validator.Option) 
 }
 
 // Handle adapts a handler that receives an already validated request. When
-// binding fails, the error is written with WriteError and fn is not called.
+// binding fails, the error is written with WriteErrorFor and fn is not
+// called.
 //
 //	mux.Handle("POST /orders", nethttp.Handle(func(w http.ResponseWriter, r *http.Request, req *CreateOrder) {
 //		...
@@ -67,7 +68,7 @@ func Handle[T any](fn func(w http.ResponseWriter, r *http.Request, req *T), opts
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req, err := Bind[T](r, opts...)
 		if err != nil {
-			WriteError(w, err)
+			WriteErrorFor(w, r, err, opts...)
 			return
 		}
 		fn(w, r, req)
@@ -86,8 +87,26 @@ type ErrorBody struct {
 //   - failed Authorize: 403 "This action is unauthorized."
 //   - unreadable body: 400 with the reason
 //   - anything else: 500 "Server Error" (the error is logged, not sent)
+//
+// Its own texts (the summary suffix, the 403 and 500 messages) use the
+// default locale. Use WriteErrorFor to answer in the request's language.
 func WriteError(w http.ResponseWriter, err error) {
 	status, body := Response(err)
+	write(w, err, status, body)
+}
+
+// WriteErrorFor is WriteError with its texts translated into the locale of
+// r's context (see Localize), through the "http.*" translation keys:
+// http.invalid, http.more_error, http.more_errors, http.unauthorized and
+// http.server_error. Override them like any message, for example with
+// validator.AddTranslations. opts select the validator's translator and
+// locale, as in Bind.
+func WriteErrorFor(w http.ResponseWriter, r *http.Request, err error, opts ...validator.Option) {
+	status, body := ResponseFor(r, err, opts...)
+	write(w, err, status, body)
+}
+
+func write(w http.ResponseWriter, err error, status int, body ErrorBody) {
 	if status == http.StatusInternalServerError {
 		log.Printf("nethttp: %v", err)
 	}
@@ -99,33 +118,35 @@ func WriteError(w http.ResponseWriter, err error) {
 // Response returns the status code and body WriteError would send, for
 // handlers that render errors themselves.
 func Response(err error) (int, ErrorBody) {
+	return response(context.Background(), validator.New(), err)
+}
+
+// ResponseFor returns the status code and body WriteErrorFor would send.
+func ResponseFor(r *http.Request, err error, opts ...validator.Option) (int, ErrorBody) {
+	return response(r.Context(), validator.New(opts...), err)
+}
+
+func response(ctx context.Context, v *validator.Validator, err error) (int, ErrorBody) {
 	if bag, ok := validator.ErrorsOf(err); ok {
-		return http.StatusUnprocessableEntity, ErrorBody{Message: Summary(bag), Errors: bag}
+		return http.StatusUnprocessableEntity, ErrorBody{Message: v.Summary(ctx, bag), Errors: bag}
 	}
 	if errors.Is(err, validator.ErrUnauthorized) {
-		return http.StatusForbidden, ErrorBody{Message: "This action is unauthorized."}
+		return http.StatusForbidden, ErrorBody{Message: v.Translate(ctx, "http.unauthorized", nil)}
 	}
 	var de *DecodeError
 	if errors.As(err, &de) {
 		return http.StatusBadRequest, ErrorBody{Message: de.Error()}
 	}
-	return http.StatusInternalServerError, ErrorBody{Message: "Server Error"}
+	return http.StatusInternalServerError, ErrorBody{Message: v.Translate(ctx, "http.server_error", nil)}
 }
 
 // Summary is Laravel's top-level message: the first error, plus how many
-// more there are.
+// more there are, in the default locale.
 func Summary(bag *validator.Errors) string {
-	fields := bag.Fields()
-	if len(fields) == 0 {
-		return "The given data was invalid."
-	}
-	first := bag.First(fields[0])
-	switch n := bag.Count() - 1; n {
-	case 0:
-		return first
-	case 1:
-		return first + " (and 1 more error)"
-	default:
-		return fmt.Sprintf("%s (and %d more errors)", first, n)
-	}
+	return validator.New().Summary(context.Background(), bag)
+}
+
+// SummaryFor is Summary in the locale of ctx.
+func SummaryFor(ctx context.Context, bag *validator.Errors, opts ...validator.Option) string {
+	return validator.New(opts...).Summary(ctx, bag)
 }

@@ -136,6 +136,19 @@ Values implementing `validator.File`, or `*multipart.FileHeader`, which is conve
 
 `exists` and `unique` need `validator.WithPresenceVerifier(...)`. `current_password` needs `validator.WithCurrentPassword(...)`.
 
+## Messages that are not rules
+
+These keys are translated and overridden like rule messages:
+
+| Key | English |
+|---|---|
+| `invalid` | The :attribute field is invalid. (no message found) |
+| `http.invalid` | The given data was invalid. |
+| `http.more_error` | :message (and :count more error) |
+| `http.more_errors` | :message (and :count more errors) |
+| `http.unauthorized` | This action is unauthorized. |
+| `http.server_error` | Server Error |
+
 ## Not ported
 
 - `can`: authorization belongs in the request's `Authorize` hook.
