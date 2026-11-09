@@ -23,7 +23,7 @@ package validator
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 )
@@ -179,7 +179,8 @@ func newFieldSpec(pattern string, rules []Rule) fieldSpec {
 // when a rule set cannot be built or a rule aborts.
 func (v *Validator) Validate(ctx context.Context, data any, rules Rules, opts ...Option) error {
 	vv := v.with(opts)
-	specs, err := vv.compile(rules)
+	var buf [8]fieldSpec // most rule sets fit, so they need no heap slice
+	specs, err := vv.compile(rules, buf[:0])
 	if err != nil {
 		return err
 	}
@@ -196,14 +197,15 @@ func (v *Validator) Struct(ctx context.Context, s any, opts ...Option) error {
 	return vv.run(ctx, normalize(s), specs, nil)
 }
 
-func (v *Validator) compile(rules Rules) ([]fieldSpec, error) {
-	patterns := make([]string, 0, len(rules))
+// compile builds the specs for rules, appending them to specs.
+func (v *Validator) compile(rules Rules, specs []fieldSpec) ([]fieldSpec, error) {
+	var buf [16]string
+	patterns := buf[:0]
 	for p := range rules {
 		patterns = append(patterns, p)
 	}
 	// Go maps are unordered; sort so error order is stable between runs.
-	sort.Strings(patterns)
-	specs := make([]fieldSpec, 0, len(patterns))
+	slices.Sort(patterns)
 	for _, p := range patterns {
 		spec, ok, err := v.registry.cachedSpec(p, rules[p])
 		if err != nil {
@@ -217,29 +219,38 @@ func (v *Validator) compile(rules Rules) ([]fieldSpec, error) {
 }
 
 func (v *Validator) run(ctx context.Context, root any, specs []fieldSpec, bag *Errors) error {
-	if bag == nil {
-		bag = &Errors{}
+	// Without a caller's bag, failures go into one on the stack, which is
+	// copied to the heap only when there is something to return.
+	var local Errors
+	b := bag
+	if b == nil {
+		b = &local
 	}
 	if l, ok := LocaleFrom(ctx); ok && l != v.locale {
 		c := *v
 		c.locale = l
 		v = &c
 	}
-	var e expander
+	var first [8]match
+	e := expander{buf: first[:0]}
 	for i := range specs {
 		spec := &specs[i]
-		e.expandSpec(root, spec)
+		e = e.expandSpec(root, spec)
 		for _, m := range e.buf {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := v.field(ctx, root, spec, m, bag); err != nil {
+			if err := v.field(ctx, root, spec, m, b); err != nil {
 				return err
 			}
 		}
 	}
-	if bag.IsEmpty() {
+	if b.IsEmpty() {
 		return nil
+	}
+	if bag == nil {
+		heap := local
+		bag = &heap
 	}
 	return &ValidationError{Errors: bag}
 }
@@ -259,14 +270,12 @@ func (v *Validator) field(ctx context.Context, root any, spec *fieldSpec, m matc
 			return nil
 		}
 	}
+	// Rules that are not implicit skip missing, blank and (with nullable)
+	// nil values.
+	skip := !present || isBlankString(value) || (spec.nullable && value == nil)
 	for _, c := range spec.checks {
-		if !c.implicit {
-			if !present || isBlankString(value) {
-				continue
-			}
-			if spec.nullable && value == nil {
-				continue
-			}
+		if skip && !c.implicit {
+			continue
 		}
 		err := c.rule.Validate(ctx, f)
 		if err == nil {

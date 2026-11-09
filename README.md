@@ -150,12 +150,12 @@ These numbers come from `go test -bench . -benchmem` on a 4 vCPU Linux VM, so tr
 
 | Benchmark | go-validator | go-playground/validator v10 |
 |---|---|---|
-| Struct, 4 fields + 3 items, valid | 4.2 µs, 31 allocs | 2.8 µs, 25 allocs |
-| Struct with 100 items, valid | 84 µs, 521 allocs | 42 µs, 510 allocs |
-| Struct, invalid, with messages | 4.6 µs, 48 allocs | 4.1 µs, 65 allocs |
-| Map with 4 fields | 1.7 µs, 9 allocs | 1.7 µs, 10 allocs |
+| Struct, 4 fields + 3 items, valid | 3.3 µs, 14 allocs | 2.8 µs, 25 allocs |
+| Struct with 100 items, valid | 69 µs, 309 allocs | 41 µs, 510 allocs |
+| Struct, invalid, with messages | 3.6 µs, 27 allocs | 3.9 µs, 65 allocs |
+| Map with 4 fields | 1.1 µs, 0 allocs | 1.7 µs, 10 allocs |
 
-go-validator first turns a struct into a tree of maps and lists, which is what lets structs, maps, wildcards and cross-field rules behave the same way. That copy is most of the remaining gap on large structs.
+go-validator allocates less than go-playground in every case and is faster on maps and on invalid input. It first turns a struct into a tree of maps and lists, which is what lets structs, maps, wildcards and cross-field rules behave the same way. Building those maps is most of the remaining time gap on large structs.
 
 ## Docs
 

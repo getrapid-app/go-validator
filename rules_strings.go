@@ -281,9 +281,16 @@ func emailRule(p []string) (Rule, error) {
 }
 
 func validEmail(ctx context.Context, s string, styles []EmailStyle) bool {
-	addr, err := mail.ParseAddress(s)
-	if err != nil || addr.Address != s {
-		return false
+	if !simpleEmail(s) {
+		// Every address net/mail returns has an '@', so without one the
+		// check below could only fail.
+		if strings.IndexByte(s, '@') < 0 {
+			return false
+		}
+		addr, err := mail.ParseAddress(s)
+		if err != nil || addr.Address != s {
+			return false
+		}
 	}
 	at := strings.LastIndexByte(s, '@')
 	local, domain := s[:at], s[at+1:]
@@ -312,6 +319,48 @@ func validEmail(ctx context.Context, s string, styles []EmailStyle) bool {
 		}
 	}
 	return true
+}
+
+// simpleEmail reports whether s is a plain ASCII "dot-atom@dot-atom"
+// address, the form almost every real address takes. net/mail accepts all
+// of these unchanged, so they skip its parser and its allocations. Anything
+// else (quoted local parts, domain literals, Unicode, comments) still goes
+// through net/mail, so the result is the same either way.
+func simpleEmail(s string) bool {
+	at := -1
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '@' {
+			if at >= 0 {
+				return false
+			}
+			at = i
+			continue
+		}
+		if c < '!' || c > '~' || emailSpecial(c) {
+			return false
+		}
+	}
+	return at > 0 && dotAtom(s[:at]) && dotAtom(s[at+1:])
+}
+
+// emailSpecial reports whether c is one of RFC 5322's specials, other than
+// '.' and '@', which simpleEmail handles itself.
+func emailSpecial(c byte) bool {
+	switch c {
+	case '(', ')', '<', '>', '[', ']', ':', ';', '\\', ',', '"':
+		return true
+	}
+	return false
+}
+
+// dotAtom reports whether s is non-empty with no leading, trailing or
+// doubled dots. The characters were checked by simpleEmail.
+func dotAtom(s string) bool {
+	if s == "" || s[0] == '.' || s[len(s)-1] == '.' {
+		return false
+	}
+	return !strings.Contains(s, "..")
 }
 
 func isASCII(s string) bool {

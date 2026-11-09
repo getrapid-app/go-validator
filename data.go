@@ -70,12 +70,16 @@ type typeInfo struct {
 	file   bool // the value is a File (or *multipart.FileHeader)
 	leaf   bool // kept as is instead of walked
 	fields []fieldInfo
+	// snapshot is set for structs worth copying once before their fields
+	// are read; see normalizeValue.
+	snapshot bool
 }
 
 type fieldInfo struct {
 	index    int
 	name     string
 	embedded bool // an embedded struct whose fields are flattened
+	plain    bool // a built-in string, bool or number type, used as is
 }
 
 var typeInfos sync.Map // reflect.Type -> *typeInfo
@@ -102,11 +106,59 @@ func infoOf(t reflect.Type) *typeInfo {
 			if name == "" {
 				name = sf.Name
 			}
-			ti.fields = append(ti.fields, fieldInfo{index: i, name: name})
+			ti.fields = append(ti.fields, fieldInfo{index: i, name: name, plain: isPlain(sf.Type)})
+		}
+		if !ti.leaf && !ti.file {
+			n := boxedFields(t)
+			ti.snapshot = n >= 2 && t.Size() <= uintptr(n)*64
 		}
 	}
 	actual, _ := typeInfos.LoadOrStore(t, ti)
 	return actual.(*typeInfo)
+}
+
+// isPlain reports whether t is a built-in string, bool or number type.
+// Named types are not plain, since they may implement File.
+func isPlain(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.String, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Float32, reflect.Float64:
+		return t.PkgPath() == ""
+	}
+	return false
+}
+
+// boxedFields counts the fields of struct type t, including those of
+// structs stored inline, that become a separate allocation each when read
+// from an addressable struct: strings, numbers and other non-pointer
+// values put into an interface.
+func boxedFields(t reflect.Type) int {
+	n := 0
+	for i := 0; i < t.NumField(); i++ {
+		sf := t.Field(i)
+		if _, ok := fieldName(sf); !ok {
+			continue
+		}
+		switch ft := sf.Type; ft.Kind() {
+		case reflect.String, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+			reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
+			n++
+		case reflect.Array:
+			n++
+		case reflect.Slice:
+			if isLeafType(ft) { // []byte is kept as is
+				n++
+			}
+		case reflect.Struct:
+			if isLeafType(ft) {
+				n++
+			} else {
+				n += boxedFields(ft)
+			}
+		}
+	}
+	return n
 }
 
 // fileOf returns rv as a File when its type is one.
@@ -133,14 +185,15 @@ func normalizeValue(rv reflect.Value) any {
 		return nil
 	}
 	// Plain values need no type information.
-	switch rv.Kind() {
-	case reflect.String, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Float32, reflect.Float64:
-		if rv.Type().PkgPath() == "" { // built-in types only; named ones may implement File
-			return rv.Interface()
-		}
+	if isPlain(rv.Type()) {
+		return rv.Interface()
 	}
-	ti := infoOf(rv.Type())
+	return normalizeTyped(rv, infoOf(rv.Type()))
+}
+
+// normalizeTyped is normalizeValue for a value that is not a pointer, an
+// interface or a plain value, with its type information already looked up.
+func normalizeTyped(rv reflect.Value, ti *typeInfo) any {
 	if f, ok := fileOf(rv, ti); ok {
 		return f
 	}
@@ -166,11 +219,34 @@ func normalizeValue(rv reflect.Value) any {
 			return nil
 		}
 		s := make([]any, rv.Len())
-		for i := range s {
-			s[i] = normalizeValue(rv.Index(i))
+		// Elements share one type, so it is looked up once rather than for
+		// each element, unless they are pointers or interfaces.
+		switch et := rv.Type().Elem(); {
+		case isPlain(et):
+			for i := range s {
+				s[i] = rv.Index(i).Interface()
+			}
+		case et.Kind() != reflect.Pointer && et.Kind() != reflect.Interface:
+			eti := infoOf(et)
+			for i := range s {
+				s[i] = normalizeTyped(rv.Index(i), eti)
+			}
+		default:
+			for i := range s {
+				s[i] = normalizeValue(rv.Index(i))
+			}
 		}
 		return s
 	case reflect.Struct:
+		// Reading a string or number field out of an addressable struct
+		// (one reached through a pointer or a slice) copies it to the heap,
+		// one allocation per field. The same field read from a copy of the
+		// struct that is not addressable points into that copy instead, so
+		// one copy of the whole struct replaces those allocations. Values
+		// are the same either way; rules never modify them.
+		if ti.snapshot && rv.CanAddr() && rv.CanInterface() {
+			rv = reflect.ValueOf(rv.Interface())
+		}
 		m := make(map[string]any, len(ti.fields))
 		normalizeStruct(rv, ti, m)
 		return m
@@ -181,6 +257,10 @@ func normalizeValue(rv reflect.Value) any {
 func normalizeStruct(rv reflect.Value, ti *typeInfo, m map[string]any) {
 	for _, fi := range ti.fields {
 		fv := rv.Field(fi.index)
+		if fi.plain {
+			m[fi.name] = fv.Interface()
+			continue
+		}
 		if fi.embedded {
 			for fv.Kind() == reflect.Pointer {
 				if fv.IsNil() {
@@ -327,36 +407,36 @@ func expand(root any, pattern string) []string {
 // expandMatches is expand that also returns each value, appending to buf.
 // segs is pattern split on dots.
 func expandMatches(root any, pattern string, segs []string, buf []match) []match {
-	e := expander{buf: buf}
-	e.expand(root, pattern, segs)
-	return e.buf
+	return expander{buf: buf}.expand(root, pattern, segs).buf
 }
 
 // expander walks the data for wildcard patterns. One expander is reused
 // for every pattern of a validation, so its buffers are allocated once.
+// Its methods take and return it by value instead of through a pointer,
+// which lets a caller keep the first buffer on its stack.
 type expander struct {
 	buf  []match
 	path []byte
 }
 
 // expand replaces e.buf with the matches of pattern.
-func (e *expander) expand(root any, pattern string, segs []string) {
+func (e expander) expand(root any, pattern string, segs []string) expander {
 	e.buf = e.buf[:0]
 	if !hasWildcard(segs) {
 		v, ok := lookup(root, pattern)
 		e.buf = append(e.buf, match{pattern, v, ok})
-		return
+		return e
 	}
 	e.path = e.path[:0]
-	e.walk(root, true, segs)
+	return e.walk(root, true, segs)
 }
 
 // walk builds the path in one reusable byte buffer and turns it into a
 // string once per match.
-func (e *expander) walk(cur any, present bool, segs []string) {
+func (e expander) walk(cur any, present bool, segs []string) expander {
 	if len(segs) == 0 {
 		e.buf = append(e.buf, match{string(e.path), cur, present})
-		return
+		return e
 	}
 	seg, rest := segs[0], segs[1:]
 	mark := len(e.path)
@@ -367,9 +447,9 @@ func (e *expander) walk(cur any, present bool, segs []string) {
 		}
 		e.path = append(e.path, seg...)
 		next, ok := child(cur, seg)
-		e.walk(next, present && ok, rest)
+		e = e.walk(next, present && ok, rest)
 		e.path = e.path[:mark]
-		return
+		return e
 	}
 	switch n := cur.(type) {
 	case []any:
@@ -378,7 +458,7 @@ func (e *expander) walk(cur any, present bool, segs []string) {
 				e.path = append(e.path, '.')
 			}
 			e.path = strconv.AppendInt(e.path, int64(i), 10)
-			e.walk(v, true, rest)
+			e = e.walk(v, true, rest)
 			e.path = e.path[:mark]
 		}
 	case map[string]any:
@@ -392,10 +472,11 @@ func (e *expander) walk(cur any, present bool, segs []string) {
 				e.path = append(e.path, '.')
 			}
 			e.path = append(e.path, k...)
-			e.walk(n[k], true, rest)
+			e = e.walk(n[k], true, rest)
 			e.path = e.path[:mark]
 		}
 	}
+	return e
 }
 
 // listPattern speeds up the most common wildcard pattern, one "*" such as
@@ -469,17 +550,15 @@ func (l *listPattern) build(i int) string {
 
 // expandSpec is expand for a compiled spec, using its list fast path when
 // the wildcard is over a list.
-func (e *expander) expandSpec(root any, spec *fieldSpec) {
+func (e expander) expandSpec(root any, spec *fieldSpec) expander {
 	l := spec.list
 	if l == nil {
-		e.expand(root, spec.pattern, spec.segs)
-		return
+		return e.expand(root, spec.pattern, spec.segs)
 	}
 	base, ok := lookup(root, l.prefix)
 	list, isList := base.([]any)
 	if !ok || !isList {
-		e.expand(root, spec.pattern, spec.segs) // maps, or nothing to expand
-		return
+		return e.expand(root, spec.pattern, spec.segs) // maps, or nothing to expand
 	}
 	e.buf = e.buf[:0]
 	for i, item := range list {
@@ -489,6 +568,7 @@ func (e *expander) expandSpec(root any, spec *fieldSpec) {
 		}
 		e.buf = append(e.buf, match{l.path(i), v, present})
 	}
+	return e
 }
 
 func splitPath(p string) []string { return strings.Split(p, ".") }

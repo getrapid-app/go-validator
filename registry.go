@@ -3,6 +3,7 @@ package validator
 import (
 	"context"
 	"fmt"
+	"hash/maphash"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,7 +19,7 @@ type Registry struct {
 	mu        sync.RWMutex
 	factories map[string]Factory
 	messages  map[string]string
-	version   uint64 // bumped on Register, so compiled tag rules are rebuilt
+	version   atomic.Uint64 // bumped on Register, so compiled rules are rebuilt
 
 	specs     sync.Map // specKey -> fieldSpec, for rules written as strings
 	specCount atomic.Int64
@@ -33,43 +34,97 @@ type specKey struct {
 	version        uint64
 }
 
+// listKey is the cache key for rules written as a []string. The strings
+// are hashed rather than joined into one key, which would allocate on
+// every call; the cached entry keeps them to rule out hash collisions.
+type listKey struct {
+	pattern string
+	hash    uint64
+	version uint64
+}
+
+type listEntry struct {
+	rules []string
+	spec  fieldSpec
+}
+
+var listSeed = maphash.MakeSeed()
+
+func hashRules(rules []string) uint64 {
+	var h maphash.Hash
+	h.SetSeed(listSeed)
+	for _, r := range rules {
+		h.WriteString(r)
+		h.WriteByte(0)
+	}
+	return h.Sum64()
+}
+
+func equalRules(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // cachedSpec compiles the rules for one pattern. Rules written as strings or
 // string lists are parsed once per registry version and then reused; rules
 // are immutable once built, so sharing them is safe. ok is false when the
 // pattern has no rules.
 func (r *Registry) cachedSpec(pattern string, spec any) (fieldSpec, bool, error) {
-	var key string
 	switch t := spec.(type) {
 	case string:
-		key = t
-	case []string:
-		key = "\x00" + strings.Join(t, "\x00")
-	default:
-		built, err := toRules(spec, r)
-		if err != nil || len(built) == 0 {
-			return fieldSpec{}, false, err
+		k := specKey{pattern, t, r.version.Load()}
+		if cached, ok := r.specs.Load(k); ok {
+			fs := cached.(fieldSpec)
+			return fs, fs.rules != nil, nil
 		}
-		return newFieldSpec(pattern, built), true, nil
+		fs, err := r.buildSpec(pattern, spec)
+		if err == nil {
+			r.store(k, fs)
+		}
+		return fs, fs.rules != nil, err
+	case []string:
+		k := listKey{pattern, hashRules(t), r.version.Load()}
+		if cached, ok := r.specs.Load(k); ok {
+			if e := cached.(*listEntry); equalRules(e.rules, t) {
+				return e.spec, e.spec.rules != nil, nil
+			}
+			// A hash collision: build without caching.
+			fs, err := r.buildSpec(pattern, spec)
+			return fs, fs.rules != nil, err
+		}
+		fs, err := r.buildSpec(pattern, spec)
+		if err == nil {
+			r.store(k, &listEntry{rules: append([]string(nil), t...), spec: fs})
+		}
+		return fs, fs.rules != nil, err
 	}
-	k := specKey{pattern, key, r.currentVersion()}
-	if cached, ok := r.specs.Load(k); ok {
-		fs := cached.(fieldSpec)
-		return fs, fs.rules != nil, nil
-	}
+	fs, err := r.buildSpec(pattern, spec)
+	return fs, fs.rules != nil, err
+}
+
+// buildSpec compiles rules for pattern. The spec has nil rules when there
+// are none.
+func (r *Registry) buildSpec(pattern string, spec any) (fieldSpec, error) {
 	built, err := toRules(spec, r)
-	if err != nil {
-		return fieldSpec{}, false, err
+	if err != nil || len(built) == 0 {
+		return fieldSpec{}, err
 	}
-	var fs fieldSpec
-	if len(built) > 0 {
-		fs = newFieldSpec(pattern, built)
-	}
+	return newFieldSpec(pattern, built), nil
+}
+
+func (r *Registry) store(k, v any) {
 	if r.specCount.Load() < maxCachedSpecs {
-		if _, loaded := r.specs.LoadOrStore(k, fs); !loaded {
+		if _, loaded := r.specs.LoadOrStore(k, v); !loaded {
 			r.specCount.Add(1)
 		}
 	}
-	return fs, len(built) > 0, nil
 }
 
 // NewRegistry returns a registry with every built-in rule and its English
@@ -85,18 +140,14 @@ func (r *Registry) Register(name string, f Factory) *Registry {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.factories[name] = f
-	r.version++
+	r.version.Add(1)
 	// Specs compiled against the old version can never be hit again.
 	r.specs.Range(func(k, _ any) bool { r.specs.Delete(k); return true })
 	r.specCount.Store(0)
 	return r
 }
 
-func (r *Registry) currentVersion() uint64 {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.version
-}
+func (r *Registry) currentVersion() uint64 { return r.version.Load() }
 
 // SetMessage sets the default message for a key such as "even" or
 // "max.string". It returns r so calls chain.
