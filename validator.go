@@ -114,6 +114,9 @@ func New(opts ...Option) *Validator {
 	return v
 }
 
+// With returns a copy of v with opts applied. v itself is not changed.
+func (v *Validator) With(opts ...Option) *Validator { return v.with(opts) }
+
 func (v *Validator) with(opts []Option) *Validator {
 	if len(opts) == 0 {
 		return v
