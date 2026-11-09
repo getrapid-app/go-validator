@@ -100,10 +100,15 @@ Wildcards expand only where the data has entries: `items.*.name` over three item
 
 Messages resolve in Laravel's order:
 
-1. custom message for `field.rule` or `pattern.rule` (`items.*.price.min`)
-2. custom message for `rule`
-3. `Translator` for the current locale
-4. the registry's default English message
+1. custom message in code for `field.rule` or `pattern.rule` (`items.*.price.min`)
+2. custom message in code for `rule`
+3. the translator's `custom.field.rule` or `custom.pattern.rule`
+4. the translator's `rule`, searched in the locale (`ar-EG`), its language (`ar`), then the fallback locale (`en`)
+5. the registry's default English message
+
+The default translator is `DefaultTranslations`, which ships English and Arabic. Teams add a language or override messages with `AddTranslations(locale, map)` or JSON files (`LoadTranslations(fsys, "lang/*.json")`, nested like Laravel's lang files). English stays in the registry as each rule's default, so `Registry.SetMessage` keeps working; the `en` locale holds only overrides. Display names come from `WithAttributes`, then the translator's `attributes.field`.
+
+The locale is the validator's (`WithLocale`), unless the context carries one (`ContextWithLocale`). `nethttp.Localize` sets it from `Accept-Language`.
 
 Placeholders are `:attribute` (custom attribute name, or the path with `_` turned into spaces), `:other`, and the rule's own params (`:min`, `:max`, `:values`, ...).
 
@@ -137,6 +142,8 @@ go-validator/            core package `validator`, no dependencies
   data.go                normalisation, lookup, wildcard expansion
   field.go               Field
   messages.go            message resolution, Translator
+  translations.go        Translations catalog, locale fallback, context locale
+  messages_ar.go         built-in Arabic messages
   errors.go              Errors, ValidationError
   request.go             request pattern
   rules*.go              built-in rules, grouped by kind (step 2)

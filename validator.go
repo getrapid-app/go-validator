@@ -48,12 +48,14 @@ type Option func(*Validator)
 // WithRegistry uses reg instead of the default registry.
 func WithRegistry(reg *Registry) Option { return func(v *Validator) { v.registry = reg } }
 
-// WithTranslator sets the translator and locale for messages.
+// WithTranslator sets the translator and locale for messages. Validators use
+// DefaultTranslations unless this option says otherwise.
 func WithTranslator(t Translator, locale string) Option {
 	return func(v *Validator) { v.translator, v.locale = t, locale }
 }
 
-// WithLocale changes the locale passed to the translator.
+// WithLocale sets the locale for messages, such as "ar" or "ar-EG". A locale
+// set on the context with ContextWithLocale takes precedence.
 func WithLocale(locale string) Option { return func(v *Validator) { v.locale = locale } }
 
 // WithMessages adds custom messages. Keys are "rule", "field.rule" or
@@ -105,7 +107,7 @@ func Define(name string) *Definition { return DefaultRegistry.Define(name) }
 
 // New returns a Validator.
 func New(opts ...Option) *Validator {
-	v := &Validator{registry: DefaultRegistry, locale: "en"}
+	v := &Validator{registry: DefaultRegistry, translator: DefaultTranslations, locale: "en"}
 	for _, o := range opts {
 		o(v)
 	}
@@ -178,6 +180,11 @@ func (v *Validator) compile(rules Rules) ([]fieldSpec, error) {
 func (v *Validator) run(ctx context.Context, root any, specs []fieldSpec, bag *Errors) error {
 	if bag == nil {
 		bag = NewErrors()
+	}
+	if l, ok := LocaleFrom(ctx); ok && l != v.locale {
+		c := *v
+		c.locale = l
+		v = &c
 	}
 	for _, spec := range specs {
 		for _, path := range expand(root, spec.pattern) {
@@ -263,11 +270,15 @@ func (v *Validator) failureMessage(f Field, r Rule, err error) string {
 	}
 	// A plain error: its text is the message, still allowing a custom
 	// message to override it and :attribute to be filled in.
-	if m, ok := v.messages[f.Path+"."+r.Name()]; ok {
+	if m, ok := v.customMessage(f, []string{r.Name()}); ok {
 		return v.replace(m, f, nil)
 	}
-	if m, ok := v.messages[f.Pattern+"."+r.Name()]; ok {
-		return v.replace(m, f, nil)
+	// A translation keyed by the rule's name replaces the error's text, so
+	// rules that return plain errors can be translated too.
+	if v.translator != nil {
+		if m, ok := v.translator.Translate(v.locale, r.Name()); ok {
+			return v.replace(m, f, nil)
+		}
 	}
 	return v.replace(err.Error(), f, nil)
 }

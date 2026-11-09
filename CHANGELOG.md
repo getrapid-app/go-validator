@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/). Until 1.0.0, minor versions may contain breaking changes.
 
+## [Unreleased]
+
+### Added
+
+- Built-in Arabic messages for every rule, next to English.
+- `Translations`, the default translator: add a language or override messages per locale with `AddTranslations`, or load Laravel-style JSON files with `LoadTranslations`. Lookups fall back from `ar-EG` to `ar` to the fallback locale (`en`).
+- `attributes.<field>` and `custom.<field>.<rule>` translation keys for display names and per-field messages.
+- `ContextWithLocale` to choose the language per call, and `nethttp.Localize` / `nethttp.PreferredLocale` to pick it from `Accept-Language`.
+
+### Changed
+
+- Validators use `DefaultTranslations` unless `WithTranslator` is given.
+- A message set in code for a bare rule name (`WithMessages{"short": ...}`) now also replaces the text of rules that return plain errors.
+
 ## [0.1.0] - 2026-11-08
 
 First release.

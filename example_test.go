@@ -68,3 +68,22 @@ func ExampleDefine() {
 	fmt.Println(err)
 	// Output: The seats must be even.
 }
+
+func ExampleTranslations() {
+	// Usually validator.AddTranslations, which changes the defaults
+	// everywhere. A separate catalog keeps this example self-contained.
+	tr := validator.NewTranslations().Add("ar-EG", map[string]string{
+		"required":         "لازم تكتب :attribute.",
+		"attributes.email": "الإيميل",
+	})
+	v := validator.New(validator.WithTranslator(tr, "en"))
+
+	rules := validator.Rules{"email": "required", "age": "required|integer"}
+	err := v.Validate(validator.ContextWithLocale(context.Background(), "ar-EG"), map[string]any{"age": "x"}, rules)
+	bag, _ := validator.ErrorsOf(err)
+	fmt.Println(bag.First("email"))
+	fmt.Println(bag.First("age")) // not overridden: built-in Arabic
+	// Output:
+	// لازم تكتب الإيميل.
+	// يجب أن يكون حقل age عددًا صحيحًا.
+}
