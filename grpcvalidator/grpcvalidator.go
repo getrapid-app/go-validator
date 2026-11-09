@@ -27,24 +27,32 @@
 // Failures become codes.InvalidArgument with an errdetails.BadRequest that
 // lists every field violation; a failed Authorize becomes
 // codes.PermissionDenied.
+//
+// Messages use the locale of the request's context (validator.ContextWithLocale).
+// WithAcceptLanguage sets it from the client's "accept-language" metadata, so
+// the field violations, the status summary and the PermissionDenied text
+// come back in the client's language.
 package grpcvalidator
 
 import (
 	"context"
 	"errors"
-	"fmt"
+	"strings"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/getrapid-app/go-validator"
 )
 
 type config struct {
-	v    *validator.Validator
-	opts []validator.Option
+	v         *validator.Validator
+	opts      []validator.Option
+	localize  bool
+	supported []string
 }
 
 // Option configures the interceptors.
@@ -57,6 +65,16 @@ func WithValidator(v *validator.Validator) Option { return func(c *config) { c.v
 // WithOptions passes validator options to every validation.
 func WithOptions(opts ...validator.Option) Option {
 	return func(c *config) { c.opts = append(c.opts, opts...) }
+}
+
+// WithAcceptLanguage picks each request's locale from its "accept-language"
+// metadata, matched against supported (or the locales of
+// validator.DefaultTranslations when supported is empty). A locale already
+// set on the context is kept.
+//
+//	conn.Invoke(metadata.AppendToOutgoingContext(ctx, "accept-language", "ar"), ...)
+func WithAcceptLanguage(supported ...string) Option {
+	return func(c *config) { c.localize, c.supported = true, supported }
 }
 
 func newConfig(opts []Option) *config {
@@ -107,12 +125,38 @@ func (c *config) validate(ctx context.Context, req any) error {
 	default:
 		return nil
 	}
-	return Status(c.v.ValidateRequest(ctx, req, c.opts...))
+	ctx = c.locale(ctx)
+	return statusWith(ctx, c.v.With(c.opts...), c.v.ValidateRequest(ctx, req, c.opts...))
 }
 
-// Status converts a validation result to a gRPC status error. It returns
-// nil for nil, and leaves errors that already carry a status unchanged.
+func (c *config) locale(ctx context.Context) context.Context {
+	if !c.localize {
+		return ctx
+	}
+	if _, ok := validator.LocaleFrom(ctx); ok {
+		return ctx
+	}
+	md, _ := metadata.FromIncomingContext(ctx)
+	if l := validator.MatchLocale(strings.Join(md.Get("accept-language"), ","), c.supported...); l != "" {
+		return validator.ContextWithLocale(ctx, l)
+	}
+	return ctx
+}
+
+// Status converts a validation result to a gRPC status error, with texts in
+// the default locale. It returns nil for nil, and leaves errors that already
+// carry a status unchanged.
 func Status(err error) error {
+	return statusWith(context.Background(), validator.New(), err)
+}
+
+// StatusFor is Status with texts in the locale of ctx. opts select the
+// translator, as in validation.
+func StatusFor(ctx context.Context, err error, opts ...validator.Option) error {
+	return statusWith(ctx, validator.New(opts...), err)
+}
+
+func statusWith(ctx context.Context, v *validator.Validator, err error) error {
 	if err == nil {
 		return nil
 	}
@@ -123,33 +167,17 @@ func Status(err error) error {
 				br.FieldViolations = append(br.FieldViolations, &errdetails.BadRequest_FieldViolation{Field: field, Description: msg})
 			}
 		}
-		st := status.New(codes.InvalidArgument, summary(bag))
+		st := status.New(codes.InvalidArgument, v.Summary(ctx, bag))
 		if withDetails, derr := st.WithDetails(br); derr == nil {
 			st = withDetails
 		}
 		return st.Err()
 	}
 	if errors.Is(err, validator.ErrUnauthorized) {
-		return status.Error(codes.PermissionDenied, "This action is unauthorized.")
+		return status.Error(codes.PermissionDenied, v.Translate(ctx, "http.unauthorized", nil))
 	}
 	if _, ok := status.FromError(err); ok {
 		return err
 	}
 	return status.Error(codes.Internal, "validation could not complete")
-}
-
-func summary(bag *validator.Errors) string {
-	fields := bag.Fields()
-	if len(fields) == 0 {
-		return "The given data was invalid."
-	}
-	first := bag.First(fields[0])
-	switch n := bag.Count() - 1; n {
-	case 0:
-		return first
-	case 1:
-		return first + " (and 1 more error)"
-	default:
-		return fmt.Sprintf("%s (and %d more errors)", first, n)
-	}
 }

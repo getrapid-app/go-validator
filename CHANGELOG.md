@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-09
+
 ### Added
 
 - Built-in Arabic messages for every rule, next to English.
@@ -12,9 +14,13 @@ All notable changes to this project are documented here. The format follows [Kee
 - `nethttp.WriteErrorFor`, `ResponseFor` and `SummaryFor` answer in the request's language: the 422 summary suffix ("(and 2 more errors)"), the 403 and the 500 texts come from the `http.*` translation keys, which teams can override. `Handle` uses them.
 - `Validator.Translate` / `validator.Translate` for texts that are not about one field, and `Validator.Summary` for the 422 top-level message.
 - `ContextWithLocale` to choose the language per call, and `nethttp.Localize` / `nethttp.PreferredLocale` to pick it from `Accept-Language`.
+- `MatchLocale` to match an Accept-Language value against supported locales.
+- `Validator.With` returns a copy of a validator with extra options.
+- `grpcvalidator.WithAcceptLanguage` picks the locale from `accept-language` metadata. The InvalidArgument summary and the PermissionDenied text are translated through the `http.*` keys; `StatusFor` converts an error in a given locale.
 
 ### Changed
 
+- `grpcvalidator` requires core v0.2.0.
 - Validators use `DefaultTranslations` unless `WithTranslator` is given.
 - A message set in code for a bare rule name (`WithMessages{"short": ...}`) now also replaces the text of rules that return plain errors.
 
@@ -34,4 +40,5 @@ First release.
 - `nethttp` adapter: request input decoding (JSON, forms, multipart files, query), `Bind`, `Handle`, and Laravel-shaped 422/403/400 responses.
 - `grpcvalidator` module: unary and stream interceptors returning `InvalidArgument` with field violations.
 
+[0.2.0]: https://github.com/getrapid-app/go-validator/releases/tag/v0.2.0
 [0.1.0]: https://github.com/getrapid-app/go-validator/releases/tag/v0.1.0

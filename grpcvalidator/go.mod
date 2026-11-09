@@ -3,7 +3,7 @@ module github.com/getrapid-app/go-validator/grpcvalidator
 go 1.22
 
 require (
-	github.com/getrapid-app/go-validator v0.1.0
+	github.com/getrapid-app/go-validator v0.2.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240814211410-ddb44dafa142
 	google.golang.org/grpc v1.67.1
 )

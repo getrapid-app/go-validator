@@ -1,6 +1,6 @@
 # go-validator design
 
-Status: released as v0.1.0.
+Status: released as v0.2.0.
 
 ## Goal
 
@@ -108,7 +108,7 @@ Messages resolve in Laravel's order:
 
 The default translator is `DefaultTranslations`, which ships English and Arabic. Teams add a language or override messages with `AddTranslations(locale, map)` or JSON files (`LoadTranslations(fsys, "lang/*.json")`, nested like Laravel's lang files). English stays in the registry as each rule's default, so `Registry.SetMessage` keeps working; the `en` locale holds only overrides. Display names come from `WithAttributes`, then the translator's `attributes.field`.
 
-The locale is the validator's (`WithLocale`), unless the context carries one (`ContextWithLocale`). `nethttp.Localize` sets it from `Accept-Language`.
+The locale is the validator's (`WithLocale`), unless the context carries one (`ContextWithLocale`). `nethttp.Localize` sets it from `Accept-Language`, and `grpcvalidator.WithAcceptLanguage` from `accept-language` metadata.
 
 Placeholders are `:attribute` (custom attribute name, or the path with `_` turned into spaces), `:other`, and the rule's own params (`:min`, `:max`, `:values`, ...).
 

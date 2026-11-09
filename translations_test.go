@@ -154,3 +154,12 @@ func TestTranslateKey(t *testing.T) {
 		t.Errorf("missing: %q", got)
 	}
 }
+
+func TestMatchLocale(t *testing.T) {
+	if got := validator.MatchLocale("fr, ar-EG;q=0.8", "en", "ar"); got != "ar" {
+		t.Errorf("got %q", got)
+	}
+	if got := validator.MatchLocale("de"); got != "" {
+		t.Errorf("got %q", got)
+	}
+}

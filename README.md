@@ -112,7 +112,7 @@ grpc.NewServer(
 )
 ```
 
-Failures become `InvalidArgument` with an `errdetails.BadRequest` that lists each field. Use proto3 `optional` for numbers that may be unset.
+Failures become `InvalidArgument` with an `errdetails.BadRequest` that lists each field. Add `grpcvalidator.WithAcceptLanguage()` to both interceptors to answer in the language of the client's `accept-language` metadata. Use proto3 `optional` for numbers that may be unset.
 
 ## Translations
 
