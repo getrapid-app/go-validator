@@ -12,6 +12,10 @@ import (
 type Errors struct {
 	order []string
 	msgs  map[string][]string
+	// slab holds the first message of each field, so fields do not need a
+	// slice allocation each. A field's slice has capacity 1 into it, so a
+	// second message moves that field to its own slice.
+	slab []string
 }
 
 // NewErrors returns an empty error bag.
@@ -22,10 +26,20 @@ func (e *Errors) Add(field, message string) {
 	if e.msgs == nil {
 		e.msgs = map[string][]string{}
 	}
-	if _, ok := e.msgs[field]; !ok {
-		e.order = append(e.order, field)
+	if cur, ok := e.msgs[field]; ok {
+		e.msgs[field] = append(cur, message)
+		return
 	}
-	e.msgs[field] = append(e.msgs[field], message)
+	if e.order == nil {
+		e.order = make([]string, 0, 8)
+	}
+	e.order = append(e.order, field)
+	if len(e.slab) == cap(e.slab) {
+		e.slab = make([]string, 0, 8)
+	}
+	e.slab = append(e.slab, message)
+	n := len(e.slab)
+	e.msgs[field] = e.slab[n-1 : n : n]
 }
 
 // Set replaces every message for field.

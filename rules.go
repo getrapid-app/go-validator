@@ -146,26 +146,37 @@ func twoInts(build func(a, b int) Rule) Factory {
 // check builds a non-implicit rule from a predicate on the field. When ok
 // is false the rule fails with its own name and params.
 func check(name string, params map[string]any, ok func(f Field) bool) Rule {
-	return &funcRule{name: name, fn: func(_ context.Context, f Field) error {
-		if !ok(f) {
-			return Fail(name, params)
-		}
-		return nil
-	}}
+	return &checkRule{name: name, params: params, ok: ok}
 }
 
 // implicitCheck is like check for implicit rules.
 func implicitCheck(name string, params func(f Field) map[string]any, ok func(f Field) bool) Rule {
-	return &funcRule{name: name, implicit: true, fn: func(_ context.Context, f Field) error {
-		if !ok(f) {
-			var p map[string]any
-			if params != nil {
-				p = params(f)
-			}
-			return Fail(name, p)
-		}
+	return &checkRule{name: name, implicit: true, lazyParams: params, ok: ok}
+}
+
+// checkRule is the rule check and implicitCheck build. It calls ok
+// directly rather than through a funcRule closure, since most built-in
+// rules are checks and run for every field.
+type checkRule struct {
+	name       string
+	implicit   bool
+	params     map[string]any
+	lazyParams func(f Field) map[string]any
+	ok         func(f Field) bool
+}
+
+func (r *checkRule) Name() string   { return r.name }
+func (r *checkRule) Implicit() bool { return r.implicit }
+
+func (r *checkRule) Validate(_ context.Context, f Field) error {
+	if r.ok(f) {
 		return nil
-	}}
+	}
+	p := r.params
+	if r.lazyParams != nil {
+		p = r.lazyParams(f)
+	}
+	return Fail(r.name, p)
 }
 
 // --- value helpers --------------------------------------------------------

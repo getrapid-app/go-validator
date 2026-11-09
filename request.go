@@ -97,7 +97,7 @@ func (v *Validator) validateRequest(ctx context.Context, req, input any, opts []
 		return err
 	}
 	if rp, ok := req.(RulesProvider); ok {
-		extra, err := vv.compile(rp.Rules())
+		extra, err := vv.compile(rp.Rules(), nil)
 		if err != nil {
 			return err
 		}

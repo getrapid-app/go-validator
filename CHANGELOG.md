@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Changed
 
+- Faster validation with fewer allocations again, with no change in behaviour or API. On the package benchmarks: structs 3.9 µs → 3.0 µs (31 → 14 allocations), 100 wildcard items 71 µs → 59 µs (521 → 309), maps 2.2 µs → 1.1 µs (17 → 0), failures with messages 4.5 µs → 3.7 µs (48 → 26).
+  - Plain `local@domain` email addresses are checked without `net/mail`; anything else still goes through it, and a fuzz test checks both agree.
+  - A struct reached through a pointer or a slice is copied once before its fields are read, instead of each string or number field being copied to the heap.
+  - Rules given as `[]string` are cached by hash instead of by a joined key built on every call.
+  - Validate keeps its compiled rules, wildcard matches and error bag on the stack, and the registry version is read atomically instead of under a lock.
+  - An error bag stores the first message of each field in one shared slice.
+  - Built-in check rules call their test directly instead of through a closure.
+
+## [0.2.2] - 2026-11-09
+
+### Changed
+
 - Faster validation with far fewer allocations, with no change in behaviour. On the package benchmarks: structs 13 µs → 4 µs (156 → 31 allocations), 100 wildcard items 290 µs → 75 µs (3,469 → 521), maps 5.2 µs → 2.2 µs (65 → 17), failures with messages 22 µs → 4.6 µs (204 → 48).
   - Rules written as strings are parsed once per registry version and cached (bounded).
   - Per-type struct information is cached; plain values skip reflection lookups; already-normalised input (such as decoded JSON) is no longer copied.
@@ -61,6 +73,7 @@ First release.
 - `nethttp` adapter: request input decoding (JSON, forms, multipart files, query), `Bind`, `Handle`, and Laravel-shaped 422/403/400 responses.
 - `grpcvalidator` module: unary and stream interceptors returning `InvalidArgument` with field violations.
 
+[0.2.2]: https://github.com/getrapid-app/go-validator/releases/tag/v0.2.2
 [0.2.1]: https://github.com/getrapid-app/go-validator/releases/tag/v0.2.1
 [0.2.0]: https://github.com/getrapid-app/go-validator/releases/tag/v0.2.0
 [0.1.0]: https://github.com/getrapid-app/go-validator/releases/tag/v0.1.0
