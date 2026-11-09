@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // Factory builds a rule from the parameters written after the colon in a
@@ -18,6 +19,57 @@ type Registry struct {
 	factories map[string]Factory
 	messages  map[string]string
 	version   uint64 // bumped on Register, so compiled tag rules are rebuilt
+
+	specs     sync.Map // specKey -> fieldSpec, for rules written as strings
+	specCount atomic.Int64
+}
+
+// maxCachedSpecs bounds the cache of compiled string rules, in case rule
+// strings are built dynamically (such as "in:" plus a list from a database).
+const maxCachedSpecs = 4096
+
+type specKey struct {
+	pattern, rules string
+	version        uint64
+}
+
+// cachedSpec compiles the rules for one pattern. Rules written as strings or
+// string lists are parsed once per registry version and then reused; rules
+// are immutable once built, so sharing them is safe. ok is false when the
+// pattern has no rules.
+func (r *Registry) cachedSpec(pattern string, spec any) (fieldSpec, bool, error) {
+	var key string
+	switch t := spec.(type) {
+	case string:
+		key = t
+	case []string:
+		key = "\x00" + strings.Join(t, "\x00")
+	default:
+		built, err := toRules(spec, r)
+		if err != nil || len(built) == 0 {
+			return fieldSpec{}, false, err
+		}
+		return newFieldSpec(pattern, built), true, nil
+	}
+	k := specKey{pattern, key, r.currentVersion()}
+	if cached, ok := r.specs.Load(k); ok {
+		fs := cached.(fieldSpec)
+		return fs, fs.rules != nil, nil
+	}
+	built, err := toRules(spec, r)
+	if err != nil {
+		return fieldSpec{}, false, err
+	}
+	var fs fieldSpec
+	if len(built) > 0 {
+		fs = newFieldSpec(pattern, built)
+	}
+	if r.specCount.Load() < maxCachedSpecs {
+		if _, loaded := r.specs.LoadOrStore(k, fs); !loaded {
+			r.specCount.Add(1)
+		}
+	}
+	return fs, len(built) > 0, nil
 }
 
 // NewRegistry returns a registry with every built-in rule and its English
@@ -34,6 +86,9 @@ func (r *Registry) Register(name string, f Factory) *Registry {
 	defer r.mu.Unlock()
 	r.factories[name] = f
 	r.version++
+	// Specs compiled against the old version can never be hit again.
+	r.specs.Range(func(k, _ any) bool { r.specs.Delete(k); return true })
+	r.specCount.Store(0)
 	return r
 }
 

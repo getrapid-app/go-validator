@@ -182,6 +182,24 @@ func As[T any](v any) (T, bool) {
 	if v == nil {
 		return zero, false
 	}
+	// Fast paths for the conversions rules use most, without reflection.
+	switch any(zero).(type) {
+	case int64:
+		if n, ok, known := exactInt64(v); known {
+			return any(n).(T), ok
+		}
+	case int:
+		if n, ok, known := exactInt64(v); known {
+			if !ok || int64(int(n)) != n {
+				return zero, false
+			}
+			return any(int(n)).(T), true
+		}
+	case float64:
+		if n, ok, known := exactFloat64(v); known {
+			return any(n).(T), ok
+		}
+	}
 	target := reflect.TypeOf((*T)(nil)).Elem()
 	rv := reflect.ValueOf(v)
 	// Named string types, such as enums: type Status string.
@@ -237,3 +255,70 @@ type flagRule string
 func (f flagRule) Name() string                        { return string(f) }
 func (flagRule) Validate(context.Context, Field) error { return nil }
 func (f flagRule) String() string                      { return fmt.Sprintf("flag(%s)", string(f)) }
+
+// exactInt64 converts a built-in number to int64 when no information is
+// lost, matching what As does through reflection. known is false for types
+// it does not handle, which then take the reflection path.
+func exactInt64(v any) (n int64, ok, known bool) {
+	switch t := v.(type) {
+	case int:
+		return int64(t), true, true
+	case int8:
+		return int64(t), true, true
+	case int16:
+		return int64(t), true, true
+	case int32:
+		return int64(t), true, true
+	case uint:
+		return int64(t), uint(int64(t)) == t, true
+	case uint8:
+		return int64(t), true, true
+	case uint16:
+		return int64(t), true, true
+	case uint32:
+		return int64(t), true, true
+	case uint64:
+		return int64(t), uint64(int64(t)) == t, true
+	case float32:
+		n := int64(t)
+		return n, float32(n) == t, true
+	case float64:
+		n := int64(t)
+		return n, float64(n) == t, true
+	}
+	return 0, false, false
+}
+
+// exactFloat64 is exactInt64 for float64.
+func exactFloat64(v any) (n float64, ok, known bool) {
+	switch t := v.(type) {
+	case int:
+		f := float64(t)
+		return f, int(f) == t, true
+	case int8:
+		return float64(t), true, true
+	case int16:
+		return float64(t), true, true
+	case int32:
+		return float64(t), true, true
+	case int64:
+		f := float64(t)
+		return f, int64(f) == t, true
+	case uint:
+		f := float64(t)
+		return f, uint(f) == t, true
+	case uint8:
+		return float64(t), true, true
+	case uint16:
+		return float64(t), true, true
+	case uint32:
+		return float64(t), true, true
+	case uint64:
+		f := float64(t)
+		return f, uint64(f) == t, true
+	case float32:
+		f := float64(t)
+		return f, float32(f) == t, true
+	}
+	return 0, false, false
+}

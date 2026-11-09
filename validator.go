@@ -131,10 +131,47 @@ func (v *Validator) with(opts []Option) *Validator {
 // Registry returns the validator's rule registry.
 func (v *Validator) Registry() *Registry { return v.registry }
 
-// fieldSpec is one compiled entry: a path pattern and its rules.
+// fieldSpec is one compiled entry: a path pattern and its rules, with
+// everything the engine needs per value worked out once at compile time.
 type fieldSpec struct {
 	pattern string
 	rules   []Rule
+
+	segs                      []string     // pattern split on dots
+	list                      *listPattern // set for "prefix.*.suffix" patterns
+	bail, nullable, sometimes bool
+	excluders                 []excluder
+	checks                    []ruleStep // rules to run, without flags and excluders
+}
+
+// ruleStep is a rule to run, with whether it is implicit.
+type ruleStep struct {
+	rule     Rule
+	implicit bool
+}
+
+func newFieldSpec(pattern string, rules []Rule) fieldSpec {
+	s := fieldSpec{pattern: pattern, rules: rules, segs: splitPath(pattern)}
+	s.list = newListPattern(pattern)
+	for _, r := range rules {
+		switch r {
+		case flagBail:
+			s.bail = true
+		case flagNullable:
+			s.nullable = true
+		case flagSometimes:
+			s.sometimes = true
+		}
+		if _, ok := r.(flagRule); ok {
+			continue
+		}
+		if ex, ok := r.(excluder); ok {
+			s.excluders = append(s.excluders, ex)
+			continue
+		}
+		s.checks = append(s.checks, ruleStep{rule: r, implicit: isImplicit(r)})
+	}
+	return s
 }
 
 // Validate checks data against rules. It returns nil when everything
@@ -168,33 +205,35 @@ func (v *Validator) compile(rules Rules) ([]fieldSpec, error) {
 	sort.Strings(patterns)
 	specs := make([]fieldSpec, 0, len(patterns))
 	for _, p := range patterns {
-		built, err := toRules(rules[p], v.registry)
+		spec, ok, err := v.registry.cachedSpec(p, rules[p])
 		if err != nil {
 			return nil, fmt.Errorf("%w (field %q)", err, p)
 		}
-		if len(built) == 0 {
-			continue
+		if ok {
+			specs = append(specs, spec)
 		}
-		specs = append(specs, fieldSpec{pattern: p, rules: built})
 	}
 	return specs, nil
 }
 
 func (v *Validator) run(ctx context.Context, root any, specs []fieldSpec, bag *Errors) error {
 	if bag == nil {
-		bag = NewErrors()
+		bag = &Errors{}
 	}
 	if l, ok := LocaleFrom(ctx); ok && l != v.locale {
 		c := *v
 		c.locale = l
 		v = &c
 	}
-	for _, spec := range specs {
-		for _, path := range expand(root, spec.pattern) {
+	var e expander
+	for i := range specs {
+		spec := &specs[i]
+		e.expandSpec(root, spec)
+		for _, m := range e.buf {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := v.field(ctx, root, spec, path, bag); err != nil {
+			if err := v.field(ctx, root, spec, m, bag); err != nil {
 				return err
 			}
 		}
@@ -205,62 +244,44 @@ func (v *Validator) run(ctx context.Context, root any, specs []fieldSpec, bag *E
 	return &ValidationError{Errors: bag}
 }
 
-func (v *Validator) field(ctx context.Context, root any, spec fieldSpec, path string, bag *Errors) error {
-	value, present := lookup(root, path)
-	var bail, nullable, sometimes bool
-	for _, r := range spec.rules {
-		switch r {
-		case flagBail:
-			bail = true
-		case flagNullable:
-			nullable = true
-		case flagSometimes:
-			sometimes = true
-		}
-	}
-	if sometimes && !present {
+func (v *Validator) field(ctx context.Context, root any, spec *fieldSpec, m match, bag *Errors) error {
+	value, present := m.value, m.present
+	if spec.sometimes && !present {
 		return nil
 	}
-	f := Field{Path: path, Pattern: spec.pattern, Value: value, Present: present, root: root, rules: spec.rules, v: v}
-	for _, r := range spec.rules {
-		if ex, ok := r.(excluder); ok {
-			excluded, err := ex.excluded(ctx, f)
-			if err != nil {
-				return err
-			}
-			if excluded {
-				return nil
-			}
+	f := Field{Path: m.path, Pattern: spec.pattern, Value: value, Present: present, root: root, rules: spec.rules, v: v}
+	for _, ex := range spec.excluders {
+		excluded, err := ex.excluded(ctx, f)
+		if err != nil {
+			return err
+		}
+		if excluded {
+			return nil
 		}
 	}
-	for _, r := range spec.rules {
-		if _, ok := r.(flagRule); ok {
-			continue
-		}
-		if _, ok := r.(excluder); ok {
-			continue
-		}
-		implicit := isImplicit(r)
-		if !implicit {
+	for _, c := range spec.checks {
+		if !c.implicit {
 			if !present || isBlankString(value) {
 				continue
 			}
-			if nullable && value == nil {
+			if spec.nullable && value == nil {
 				continue
 			}
 		}
-		err := r.Validate(ctx, f)
+		err := c.rule.Validate(ctx, f)
 		if err == nil {
 			continue
 		}
-		if cause, ok := isAbort(err); ok {
-			return cause
+		if _, isFailure := err.(*Failure); !isFailure {
+			if cause, ok := isAbort(err); ok {
+				return cause
+			}
 		}
-		bag.Add(path, v.failureMessage(f, r, err))
+		bag.Add(m.path, v.failureMessage(f, c.rule, err))
 		// Like Laravel: stop after the first failure with bail, and after a
 		// failed implicit rule such as required, since the rest would only
 		// repeat that the value is missing.
-		if bail || implicit {
+		if spec.bail || c.implicit {
 			break
 		}
 	}

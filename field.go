@@ -49,7 +49,18 @@ func (f Field) rule(name string) Rule {
 // map, or the number zero. Zero is not blank when the field also has the
 // accept_zero rule.
 func (f Field) Blank() bool {
-	return !f.Present || isBlankValue(f.Value, f.HasRule("accept_zero"))
+	return !f.Present || isBlankValue(f.Value, f.acceptsZero())
+}
+
+// acceptsZero is HasRule("accept_zero"), comparing rule values instead of
+// calling Name on each rule.
+func (f Field) acceptsZero() bool {
+	for _, r := range f.rules {
+		if r == flagAcceptZero {
+			return true
+		}
+	}
+	return false
 }
 
 // Presence returns the verifier configured with WithPresenceVerifier, used

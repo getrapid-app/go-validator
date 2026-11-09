@@ -52,6 +52,7 @@ type Translations struct {
 	mu       sync.RWMutex
 	locales  map[string]map[string]string
 	fallback string
+	prefixes map[string]bool // "custom." and "attributes." when used
 }
 
 // NewTranslations returns translations with the built-in languages (English
@@ -97,6 +98,14 @@ func (t *Translations) Add(locale string, messages map[string]string) *Translati
 	}
 	for k, v := range messages {
 		dst[k] = v
+		for _, p := range [...]string{"custom.", "attributes."} {
+			if strings.HasPrefix(k, p) {
+				if t.prefixes == nil {
+					t.prefixes = map[string]bool{}
+				}
+				t.prefixes[p] = true
+			}
+		}
 	}
 	return t
 }
@@ -185,14 +194,31 @@ func (t *Translations) Has(locale string) bool {
 // Translate implements Translator, looking through the locale, its
 // language and the fallback locale.
 func (t *Translations) Translate(locale, key string) (string, bool) {
+	locale = normalizeLocale(locale)
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	for _, l := range t.chain(normalizeLocale(locale), true) {
-		if m, ok := t.locales[l][key]; ok {
+	if m, ok := t.locales[locale][key]; ok {
+		return m, true
+	}
+	if base, _, ok := strings.Cut(locale, "-"); ok {
+		if m, ok := t.locales[base][key]; ok {
+			return m, true
+		}
+	}
+	if t.fallback != "" && t.fallback != locale {
+		if m, ok := t.locales[t.fallback][key]; ok {
 			return m, true
 		}
 	}
 	return "", false
+}
+
+// hasPrefix reports whether any locale has a key starting with prefix
+// ("custom." or "attributes."), so lookups that cannot match are skipped.
+func (t *Translations) hasPrefix(prefix string) bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.prefixes[prefix]
 }
 
 // chain lists the locales to search: "ar-eg", "ar", then the fallback.

@@ -76,14 +76,18 @@ type sizeRule struct {
 func (r sizeRule) Name() string { return r.name }
 func (r sizeRule) Validate(_ context.Context, f Field) error {
 	size, kind, ok := sizeOf(f)
-	params := map[string]any{"min": r.lo, "max": r.hi, "size": r.lo}
 	if !ok {
-		return Fail(r.name+".numeric", params)
+		return Fail(r.name+".numeric", r.params())
 	}
 	if (r.hasLo && size < r.lo) || (r.hasHi && size > r.hi) {
-		return Fail(r.name+"."+kind, params)
+		return Fail(r.name+"."+kind, r.params())
 	}
 	return nil
+}
+
+// params is built only on failure, so passing values cost no allocation.
+func (r sizeRule) params() map[string]any {
+	return map[string]any{"min": r.lo, "max": r.hi, "size": r.lo}
 }
 
 // Size fails unless the value's size is exactly n: the number itself, the

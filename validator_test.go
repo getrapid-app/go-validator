@@ -316,3 +316,29 @@ func TestTagCacheSeesLaterRules(t *testing.T) {
 		t.Fatalf("got %v", bag.All())
 	}
 }
+
+func TestStringRuleCacheSeesLaterRules(t *testing.T) {
+	reg := validator.NewRegistry()
+	reg.Define("shout").Check(func(context.Context, validator.Field, []string) error { return nil })
+	v := validator.New(validator.WithRegistry(reg))
+	rules := validator.Rules{"a": "required|shout", "b": []string{"shout"}}
+	data := map[string]any{"a": "x", "b": "y"}
+	if err := v.Validate(ctx, data, rules); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	reg.Define("shout").Message("Louder.").Check(func(context.Context, validator.Field, []string) error {
+		return validator.Fail("shout", nil)
+	})
+	bag := mustErrors(t, v.Validate(ctx, data, rules))
+	if bag.First("a") != "Louder." || bag.First("b") != "Louder." {
+		t.Fatalf("got %v", bag.All())
+	}
+}
+
+func TestPlaceholderReplacement(t *testing.T) {
+	bag := mustErrors(t, validator.Validate(ctx, map[string]any{"n": "1"}, validator.Rules{"n": "digits_between:3,5"},
+		validator.WithMessages(map[string]string{"digits_between": ":attribute :min-:max :minimum ::max :unknown :attributes"})))
+	if got := bag.First("n"); got != "n 3-5 3imum :5 :unknown ns" {
+		t.Fatalf("got %q", got)
+	}
+}
