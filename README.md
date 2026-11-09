@@ -142,7 +142,7 @@ var langFiles embed.FS
 validator.LoadTranslations(langFiles, "lang/*.json") // lang/fr.json adds "fr"
 ```
 
-Over HTTP, `nethttp.Localize(mux)` picks each request's language from `Accept-Language`. Custom messages in code (`WithMessages`, keyed `email.required` or `required`) and display names (`WithAttributes`) work like Laravel's `messages()` and `attributes()` and win over translations. To use another i18n library, implement `validator.Translator`.
+Over HTTP, `nethttp.Localize(mux)` picks each request's language from `Accept-Language`. `nethttp.Handle` and `nethttp.WriteErrorFor` then answer fully in that language, including the 422 summary (`http.more_errors`) and the 403 and 500 texts (`http.unauthorized`, `http.server_error`), which you can override like any message. Custom messages in code (`WithMessages`, keyed `email.required` or `required`) and display names (`WithAttributes`) work like Laravel's `messages()` and `attributes()` and win over translations. To use another i18n library, implement `validator.Translator`.
 
 ## Performance
 

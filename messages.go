@@ -1,6 +1,7 @@
 package validator
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -34,6 +35,61 @@ func (m MapTranslator) Translate(locale, key string) (string, bool) {
 func (v *Validator) Message(field, key string, params map[string]any) string {
 	rule, _, _ := strings.Cut(key, ".")
 	return v.message(Field{Path: field, Pattern: field, v: v}, rule, &Failure{Key: key, Params: params})
+}
+
+// Translate returns the message for key in the locale of ctx (set with
+// ContextWithLocale) or the validator's locale, with :name placeholders
+// filled from params. It looks in the translator, then the registry's
+// default messages, and returns key itself when nothing is found.
+// Adapters use it for texts that are not about one field, such as
+// "http.unauthorized".
+func (v *Validator) Translate(ctx context.Context, key string, params map[string]any) string {
+	if l, ok := LocaleFrom(ctx); ok && l != v.locale {
+		c := *v
+		c.locale = l
+		v = &c
+	}
+	tmpl, ok := v.translate(key)
+	if !ok {
+		return key
+	}
+	names := make([]string, 0, len(params))
+	for k := range params {
+		names = append(names, k)
+	}
+	sort.Slice(names, func(i, j int) bool { return len(names[i]) > len(names[j]) })
+	pairs := make([]string, 0, 2*len(names))
+	for _, k := range names {
+		pairs = append(pairs, ":"+k, formatParam(params[k]))
+	}
+	return strings.NewReplacer(pairs...).Replace(tmpl)
+}
+
+// Translate translates key with the default validator. See
+// Validator.Translate.
+func Translate(ctx context.Context, key string, params map[string]any) string {
+	return std.Translate(ctx, key, params)
+}
+
+// Summary is Laravel's top-level message for a failed validation: the first
+// error, plus how many more there are, such as "The email field is
+// required. (and 2 more errors)". It is translated like any message, through
+// the keys http.invalid (no errors), http.more_error and http.more_errors
+// (:message and :count), in the locale of ctx.
+func (v *Validator) Summary(ctx context.Context, bag *Errors) string {
+	fields := bag.Fields()
+	if len(fields) == 0 {
+		return v.Translate(ctx, "http.invalid", nil)
+	}
+	first := bag.First(fields[0])
+	switch n := bag.Count() - 1; n {
+	case 0:
+		return first
+	case 1:
+		return v.Translate(ctx, "http.more_error", map[string]any{"message": first, "count": n})
+	default:
+		return v.Translate(ctx, "http.more_errors", map[string]any{"message": first, "count": n})
+	}
 }
 
 // message resolves the text for a failure, in Laravel's order:
