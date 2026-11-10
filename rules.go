@@ -3,6 +3,7 @@ package validator
 import (
 	"context"
 	"fmt"
+	"math"
 	"reflect"
 	"slices"
 	"strconv"
@@ -252,15 +253,60 @@ func toString(v any) string {
 
 func formatFloat(f float64) string { return strconv.FormatFloat(f, 'f', -1, 64) }
 
+// toFloat converts v to a finite float64. Strings must look like a decimal
+// number, as PHP's is_numeric requires: strconv.ParseFloat alone would also
+// accept "NaN", "Inf", hex floats and digit separators, which then slip past
+// range rules such as between.
 func toFloat(v any) (float64, bool) {
 	switch t := v.(type) {
 	case string:
-		n, err := strconv.ParseFloat(strings.TrimSpace(t), 64)
-		return n, err == nil && strings.TrimSpace(t) != ""
+		s := strings.TrimSpace(t)
+		if !isDecimalText(s) {
+			return 0, false
+		}
+		n, err := strconv.ParseFloat(s, 64)
+		return n, err == nil
 	case bool, nil:
 		return 0, false
 	}
-	return As[float64](v)
+	n, ok := As[float64](v)
+	return n, ok && !math.IsNaN(n) && !math.IsInf(n, 0)
+}
+
+// isDecimalText reports whether s is an optionally signed decimal number
+// with an optional exponent: "5", "-1.5", ".5", "5.", "1e3".
+func isDecimalText(s string) bool {
+	i := 0
+	if i < len(s) && (s[i] == '+' || s[i] == '-') {
+		i++
+	}
+	digits := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i, digits = i+1, digits+1
+	}
+	if i < len(s) && s[i] == '.' {
+		i++
+		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+			i, digits = i+1, digits+1
+		}
+	}
+	if digits == 0 {
+		return false
+	}
+	if i < len(s) && (s[i] == 'e' || s[i] == 'E') {
+		i++
+		if i < len(s) && (s[i] == '+' || s[i] == '-') {
+			i++
+		}
+		start := i
+		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+			i++
+		}
+		if i == start {
+			return false
+		}
+	}
+	return i == len(s)
 }
 
 func toInt(v any) (int64, bool) {

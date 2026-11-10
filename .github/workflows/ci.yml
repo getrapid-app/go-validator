@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ["v*", "grpcvalidator/v*"]
+    tags: ["v*", "grpcvalidator/v*", "playground/v*"]
   pull_request:
 
 permissions:

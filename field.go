@@ -20,6 +20,13 @@ type Field struct {
 	root  any
 	rules []Rule
 	v     *Validator
+	memo  *runMemo // nil unless a rule of this Validate call needs it
+}
+
+// runMemo holds values computed once per Validate call and shared by every
+// field it checks.
+type runMemo struct {
+	distinct map[string]map[any]int // sibling value counts per group
 }
 
 // Lookup returns the value of another field in the same input. Wildcards in

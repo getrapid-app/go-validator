@@ -182,10 +182,11 @@ All adapters follow the same path: decode the transport's input, run the request
 All of Laravel's validation rules are ported except `can` (use `Authorize` in the request pattern) and the upload-error rule `uploaded`. See [RULES.md](RULES.md) for the full list with the fluent names. Notes on behaviour that differs because of Go:
 
 - Size rules measure Go numbers by value even without `numeric`. Strings are measured by value only when the field also has `numeric`, `integer` or `decimal`.
+- Numeric strings follow PHP's `is_numeric`: an optional sign, digits with an optional decimal point, and an optional exponent. Go's `strconv.ParseFloat` also accepts `NaN`, `Inf`, hex floats and `_` separators, so it is only called after that check. Go `float32`/`float64` values that are NaN or ±Inf are never numbers, since every comparison with NaN is false and range rules would pass them.
 - Date rules accept `time.Time` values and strings. `date_format` takes PHP formats (`Y-m-d`) or Go layouts (`2006-01-02`). `after:today`, `tomorrow`, `yesterday` and `now` use the clock set with `WithClock`.
 - `regex` accepts PHP-delimited patterns with flags (`/^abc$/i`) as well as Go syntax.
 - `exists` and `unique` call a `PresenceVerifier` you provide (`WithPresenceVerifier`), so the package does not depend on a database driver. `current_password` calls a `CurrentPasswordChecker`.
-- File rules work on any value implementing `File`; `*multipart.FileHeader` is converted automatically. `mimes` and `image` check the file's content, not its name.
+- File rules work on any value implementing `File`; `*multipart.FileHeader` is converted automatically. `mimes` and `image` check the file's content, not its name. Every file also gets a default size limit (`DefaultMaxFileSize`, 10 MB) unless its field's own `max`, `size`, `between`, `lt` or `lte` sets one, which plays the part of PHP's `upload_max_filesize`. It covers files directly inside a list field too, such as `"photos": "array"`.
 - After a field fails an implicit rule such as `required`, its remaining rules are skipped, as Laravel does.
 - Rules that only exist as objects in Laravel are constructors here: `Enum[T]`, `ValidEnum[T]`, `Password()`, `Dimensions()`, `Exists()/Unique()`, `AnyOf`, `When`, `RequiredIfFunc`, `ProhibitedIfFunc`, `ExcludeIfFunc`.
 

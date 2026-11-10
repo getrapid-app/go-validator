@@ -116,6 +116,8 @@ Size rules measure numbers by value, strings by characters (by value with `numer
 
 Values implementing `validator.File`, or `*multipart.FileHeader`, which is converted automatically.
 
+Every file is limited to `validator.DefaultMaxFileSize` (10 MB), whether or not its field has file rules. The field's own `max`, `size`, `between`, `lt` or `lte` replaces that default, higher or lower: `"avatar": "image|max:2048"` allows 2 MB and `"video": "file|max:51200"` allows 50 MB. Change the default with `validator.DefaultMaxFileSize` at program start, or per validator with `validator.WithMaxFileSize(bytes)`; a negative value turns it off. Oversized files fail with the `max.file` message before their content is read.
+
 | String | Fluent |
 |---|---|
 | `file` | `File()` on chains, `FileRule()` as a constructor |

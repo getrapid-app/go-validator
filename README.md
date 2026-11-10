@@ -63,6 +63,8 @@ func (r *CreateOrder) Authorize(ctx context.Context) error {
 req, err := validator.Bind[CreateOrder](ctx, input) // decode + validate
 ```
 
+Like `json.Unmarshal`, `Bind` fills every field the input names, including fields without rules. Tag fields that clients must never set, such as `IsAdmin`, with `json:"-"`.
+
 ### Zero values
 
 A Go struct can't tell a missing number from `0`, so `required` treats `0` as empty. Add `accept_zero` when 0 is a real value: `validate:"required|accept_zero|integer"`. To make a field optional, use a pointer; a nil pointer counts as missing.
@@ -96,6 +98,20 @@ mux.Handle("POST /orders", nethttp.Handle(func(w http.ResponseWriter, r *http.Re
 ```
 
 `nethttp.Bind[T](r)` reads query parameters and JSON, urlencoded or multipart bodies, including files. `nethttp.WriteError` answers like Laravel: 422 with every field's messages, 403 when `Authorize` fails, and 400 for an unreadable body.
+
+Every uploaded file is limited to `validator.DefaultMaxFileSize` (10 MB) unless its field sets its own limit with `max` in kilobytes, higher or lower:
+
+```go
+validator.DefaultMaxFileSize = 5 << 20 // 5 MB for every file, at program start
+
+type UpdateProfile struct {
+    Avatar *multipart.FileHeader `json:"avatar" validate:"required|image|max:2048"`  // 2 MB
+    Video  *multipart.FileHeader `json:"video" validate:"sometimes|file|max:51200"` // 50 MB
+    CV     *multipart.FileHeader `json:"cv" validate:"sometimes|file"`              // the default
+}
+```
+
+Request bodies are capped too: `nethttp.MaxBodyBytes` for JSON and urlencoded (10 MB) and `nethttp.MaxMultipartBytes` for multipart, all files included (32 MB). Raise `MaxMultipartBytes` when a field allows more than that. Form keys may nest at most `nethttp.MaxKeyDepth` (32) levels. Change these at program start.
 
 ## gRPC
 
@@ -190,6 +206,7 @@ go-validator allocates less than go-playground in every case and is faster on ma
 
 - [docs/RULES.md](docs/RULES.md) has every rule with its string and fluent forms.
 - [docs/DESIGN.md](docs/DESIGN.md) covers the architecture and the decisions behind it.
+- [docs/SECURITY_LAB.md](docs/SECURITY_LAB.md) covers how the package is tested against hostile input. Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 - [pkg.go.dev](https://pkg.go.dev/github.com/getrapid-app/go-validator) has the API reference and runnable examples.
 
 ## Contributing

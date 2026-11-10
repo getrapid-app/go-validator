@@ -6,7 +6,17 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- A security lab ([docs/SECURITY_LAB.md](docs/SECURITY_LAB.md)): fuzz targets for every rule, rule strings, field patterns, `Bind`, `Accept-Language`, translation catalogs, `nethttp.Input` and the go-playground tags; attack probes behind the `seclab` build tag; and a Security workflow that runs `govulncheck`, `staticcheck` and the fuzzers on every pull request and weekly. [SECURITY.md](SECURITY.md) explains how to report a vulnerability.
+- **A default size limit for every file:** `validator.DefaultMaxFileSize` (10 MB), changed at program start or per validator with `validator.WithMaxFileSize`. A field's own `max`, `size`, `between`, `lt` or `lte` replaces it, higher or lower (`"video": "file|max:51200"` allows 50 MB). Oversized files fail with the `max.file` message before their content is read. Files over 10 MB in fields without a size rule now fail; raise the default or set `max` on those fields.
+- `nethttp.MaxMultipartBytes` (32 MB) and `nethttp.MaxKeyDepth` (32).
 - The `playground` module, which adds go-playground/validator's single-value validations as rules named `pg.<tag>` (about 150, such as `pg.e164`, `pg.iso3166_1_alpha2` and `pg.len:6`). They work in rule strings, struct tags and the fluent API, with English and Arabic messages that are translated and overridden like any other. `playground.WithValidate` and `playground.Tags` add custom go-playground validations.
+
+### Security
+
+- **`distinct` no longer takes quadratic time.** It compared every item with every other one, so a 300 KB request with 20,000 items took over two minutes and 100 GB of allocations. It now counts values once per call: 35 ms.
+- **`numeric`, `decimal`, `between` and the other number rules no longer accept `NaN`, `Inf`, hex floats (`0x1p4`) or digit separators (`1_000`).** `"NaN"` used to pass `numeric|between:1,100`. Strings must now look like a decimal number, as in Laravel, and `float64` NaN and ±Inf values fail too.
+- **`nethttp` caps multipart bodies** at `MaxMultipartBytes` (32 MB by default; there was no limit), so uploads cannot fill the disk. Raise it for handlers that accept larger files.
+- **`nethttp` rejects form and query keys nested deeper than `MaxKeyDepth`** (32) with 400 Bad Request. A 2 MB key such as `a.a.a...` used to allocate over 400 MB.
 
 ## [0.3.0] - 2026-11-10
 

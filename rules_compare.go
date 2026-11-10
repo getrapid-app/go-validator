@@ -2,6 +2,7 @@ package validator
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
 )
@@ -147,7 +148,33 @@ func distinctRule(strict, ignoreCase bool) Rule {
 		// Siblings share this field's concrete path except at the last
 		// wildcard, so items.0.id is compared with items.*.id.
 		mine := key(f.Value)
-		for _, p := range expand(f.root, siblingPattern(f.Pattern, f.Path)) {
+		group := siblingPattern(f.Pattern, f.Path)
+		if f.memo != nil {
+			// Count every sibling's value once per Validate call, so a list
+			// of n items costs O(n) rather than O(n²).
+			name := group
+			if strict {
+				name = "s\x00" + name
+			}
+			if ignoreCase {
+				name = "i\x00" + name
+			}
+			counts := f.memo.distinct[name]
+			if counts == nil {
+				counts = map[any]int{}
+				for _, p := range expand(f.root, group) {
+					if v, ok := lookup(f.root, p); ok {
+						counts[distinctKey(key(v))]++
+					}
+				}
+				if f.memo.distinct == nil {
+					f.memo.distinct = map[string]map[any]int{}
+				}
+				f.memo.distinct[name] = counts
+			}
+			return counts[distinctKey(mine)] < 2
+		}
+		for _, p := range expand(f.root, group) {
 			if p == f.Path {
 				continue
 			}
@@ -178,6 +205,17 @@ func siblingPattern(pattern, path string) string {
 		}
 	}
 	return strings.Join(out, ".")
+}
+
+// distinctKey returns a map key that is equal for equal values: the value
+// itself for strings, booleans and numbers, and a printed form for lists,
+// maps and other values that cannot be map keys.
+func distinctKey(v any) any {
+	switch v.(type) {
+	case nil, string, bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return v
+	}
+	return fmt.Sprintf("%T\x00%v", v, v)
 }
 
 // Contains passes lists that contain every one of values.
