@@ -16,6 +16,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - **`distinct` no longer takes quadratic time.** It compared every item with every other one, so a 300 KB request with 20,000 items took over two minutes and 100 GB of allocations. It now counts values once per call: 35 ms.
 - **`numeric`, `decimal`, `between` and the other number rules no longer accept `NaN`, `Inf`, hex floats (`0x1p4`) or digit separators (`1_000`).** `"NaN"` used to pass `numeric|between:1,100`. Strings must now look like a decimal number, as in Laravel, and `float64` NaN and ±Inf values fail too.
 - **`nethttp` caps multipart bodies** at `MaxMultipartBytes` (32 MB by default; there was no limit), so uploads cannot fill the disk. Raise it for handlers that accept larger files.
+- **`grpcvalidator` requires google.golang.org/grpc v1.83.1** (was v1.67.1), which fixes GO-2026-6348, heap exhaustion through fragmented HTTP/2 DATA frames. `golang.org/x/net`, `protobuf` and `genproto` are updated with it. Found by the new `govulncheck` job.
 - **`nethttp` rejects form and query keys nested deeper than `MaxKeyDepth`** (32) with 400 Bad Request. A 2 MB key such as `a.a.a...` used to allocate over 400 MB.
 
 ## [0.3.0] - 2026-11-10
