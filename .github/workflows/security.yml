@@ -1,0 +1,95 @@
+name: Security
+
+# Known-vulnerability scan, static checks and a short fuzzing run. It also
+# runs weekly, so a new advisory for Go or a dependency shows up even when
+# nothing in this repository changes. See docs/SECURITY_LAB.md.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: govulncheck and staticcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache-dependency-path: |
+            grpcvalidator/go.sum
+            playground/go.sum
+
+      - name: Create workspace
+        run: |
+          go work init . ./grpcvalidator ./playground
+          for mod in grpcvalidator playground; do
+            core=$(awk '$1 == "github.com/getrapid-app/go-validator" {print $2}' $mod/go.mod)
+            go work edit -replace=github.com/getrapid-app/go-validator@"$core"=./
+          done
+
+      - name: Install tools
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          go install honnef.co/go/tools/cmd/staticcheck@v0.8.2
+
+      - name: govulncheck
+        run: govulncheck ./... ./grpcvalidator/... ./playground/...
+
+      - name: staticcheck
+        run: staticcheck ./... ./grpcvalidator/... ./playground/...
+
+  fuzz:
+    name: Fuzz (${{ matrix.target.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { name: FuzzRuleValue, pkg: . }
+          - { name: FuzzRuleString, pkg: . }
+          - { name: FuzzPattern, pkg: . }
+          - { name: FuzzBind, pkg: . }
+          - { name: FuzzMatchLocale, pkg: . }
+          - { name: FuzzTranslations, pkg: . }
+          - { name: FuzzInput, pkg: ./nethttp }
+          - { name: FuzzTags, pkg: ./playground }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache-dependency-path: playground/go.sum
+
+      - name: Create workspace
+        run: |
+          go work init . ./grpcvalidator ./playground
+          for mod in grpcvalidator playground; do
+            core=$(awk '$1 == "github.com/getrapid-app/go-validator" {print $2}' $mod/go.mod)
+            go work edit -replace=github.com/getrapid-app/go-validator@"$core"=./
+          done
+
+      # Longer on the weekly run; a crash is saved under testdata/fuzz and
+      # uploaded so it can be added to the repository as a regression case.
+      - name: Fuzz
+        run: |
+          time=30s
+          if [ "${{ github.event_name }}" = "schedule" ]; then time=10m; fi
+          go test -run='^$' -fuzz='^${{ matrix.target.name }}$' -fuzztime=$time ${{ matrix.target.pkg }}
+
+      - name: Upload crashers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crashers-${{ matrix.target.name }}
+          path: "**/testdata/fuzz/**"

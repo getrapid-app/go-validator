@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"mime"
@@ -22,6 +23,15 @@ var (
 	// MaxMultipartMemory is how much of a multipart body is kept in memory;
 	// the rest of each file is stored in temporary files.
 	MaxMultipartMemory int64 = 32 << 20
+	// MaxMultipartBytes caps the whole multipart body, files included, so
+	// uploads cannot fill the disk with temporary files. Each file is also
+	// checked against validator.DefaultMaxFileSize or its field's max rule;
+	// raise this cap when a field allows larger files.
+	MaxMultipartBytes int64 = 32 << 20
+	// MaxKeyDepth caps how many segments a form or query key may have, as in
+	// "a[b][c]" (3). Deeper keys are rejected with a DecodeError, since each
+	// segment becomes a nested map.
+	MaxKeyDepth = 32
 )
 
 // DecodeError is returned when the request body cannot be read, such as
@@ -40,7 +50,9 @@ func (e *DecodeError) Unwrap() error { return e.Err }
 // "items[0][name]", "items.0.name" and "tags[]" all work.
 func Input(r *http.Request) (map[string]any, error) {
 	in := map[string]any{}
-	mergeValues(in, r.URL.Query())
+	if err := mergeValues(in, r.URL.Query()); err != nil {
+		return nil, err
+	}
 
 	if r.Body == nil || r.Body == http.NoBody {
 		return in, nil
@@ -71,13 +83,20 @@ func Input(r *http.Request) (map[string]any, error) {
 		if err := r.ParseForm(); err != nil {
 			return nil, &DecodeError{err}
 		}
-		mergeValues(in, r.PostForm)
+		if err := mergeValues(in, r.PostForm); err != nil {
+			return nil, err
+		}
 	case ct == "multipart/form-data":
+		r.Body = http.MaxBytesReader(nil, r.Body, MaxMultipartBytes)
 		if err := r.ParseMultipartForm(MaxMultipartMemory); err != nil {
 			return nil, &DecodeError{err}
 		}
-		mergeValues(in, r.MultipartForm.Value)
-		mergeFiles(in, r.MultipartForm.File)
+		if err := mergeValues(in, r.MultipartForm.Value); err != nil {
+			return nil, err
+		}
+		if err := mergeFiles(in, r.MultipartForm.File); err != nil {
+			return nil, err
+		}
 	}
 	return in, nil
 }
@@ -104,10 +123,13 @@ func numbers(v any) any {
 	return v
 }
 
-func mergeValues(dst map[string]any, vals url.Values) {
+func mergeValues(dst map[string]any, vals url.Values) error {
 	for _, key := range sortedKeys(vals) {
 		list := vals[key]
-		segs, appendLast := splitKey(key)
+		segs, appendLast, err := splitKey(key)
+		if err != nil {
+			return err
+		}
 		if appendLast || len(list) > 1 {
 			items := make([]any, len(list))
 			for i, s := range list {
@@ -119,12 +141,16 @@ func mergeValues(dst map[string]any, vals url.Values) {
 		setPath(dst, segs, list[0])
 	}
 	listify(dst)
+	return nil
 }
 
-func mergeFiles(dst map[string]any, files map[string][]*multipart.FileHeader) {
+func mergeFiles(dst map[string]any, files map[string][]*multipart.FileHeader) error {
 	for _, key := range slices.Sorted(maps.Keys(files)) {
 		list := files[key]
-		segs, appendLast := splitKey(key)
+		segs, appendLast, err := splitKey(key)
+		if err != nil {
+			return err
+		}
 		if appendLast || len(list) > 1 {
 			items := make([]any, len(list))
 			for i, f := range list {
@@ -136,19 +162,27 @@ func mergeFiles(dst map[string]any, files map[string][]*multipart.FileHeader) {
 		setPath(dst, segs, list[0])
 	}
 	listify(dst)
+	return nil
 }
 
 func sortedKeys(v url.Values) []string { return slices.Sorted(maps.Keys(v)) }
 
 // splitKey turns "a[b][0]" or "a.b.0" into its segments. appendLast is true
-// for keys ending in "[]".
-func splitKey(key string) (segs []string, appendLast bool) {
+// for keys ending in "[]". Keys deeper than MaxKeyDepth are an error.
+func splitKey(key string) (segs []string, appendLast bool, err error) {
 	if before, ok := strings.CutSuffix(key, "[]"); ok {
 		key, appendLast = before, true
 	}
 	key = strings.ReplaceAll(key, "]", "")
 	key = strings.ReplaceAll(key, "[", ".")
-	return strings.Split(key, "."), appendLast
+	if strings.Count(key, ".") >= MaxKeyDepth {
+		short := key
+		if len(short) > 64 {
+			short = short[:64] + "..."
+		}
+		return nil, false, &DecodeError{fmt.Errorf("key %q is nested more than %d levels deep", short, MaxKeyDepth)}
+	}
+	return strings.Split(key, "."), appendLast, nil
 }
 
 // setPath stores v under segs, creating nested maps. Lists are made later

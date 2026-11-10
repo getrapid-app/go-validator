@@ -41,6 +41,7 @@ type Validator struct {
 	presence   PresenceVerifier
 	now        func() time.Time
 	password   CurrentPasswordChecker
+	maxFile    int64 // default file size limit; 0 uses DefaultMaxFileSize, <0 none
 }
 
 // Option configures a Validator, either once in New or per call.
@@ -137,6 +138,8 @@ type fieldSpec struct {
 	segs                      []string     // pattern split on dots
 	list                      *listPattern // set for "prefix.*.suffix" patterns
 	bail, nullable, sometimes bool
+	memo                      bool // a rule uses runMemo
+	sizeLimited               bool // a rule caps the size of a file
 	excluders                 []excluder
 	checks                    []ruleStep // rules to run, without flags and excluders
 }
@@ -165,6 +168,12 @@ func newFieldSpec(pattern string, rules []Rule) fieldSpec {
 		if ex, ok := r.(excluder); ok {
 			s.excluders = append(s.excluders, ex)
 			continue
+		}
+		if sizeLimitRules[r.Name()] {
+			s.sizeLimited = true
+		}
+		if c, ok := r.(*checkRule); ok && c.name == "distinct" {
+			s.memo = true
 		}
 		s.checks = append(s.checks, ruleStep{rule: r, implicit: isImplicit(r)})
 	}
@@ -228,6 +237,13 @@ func (v *Validator) run(ctx context.Context, root any, specs []fieldSpec, bag *E
 		c.locale = l
 		v = &c
 	}
+	var memo *runMemo
+	for i := range specs {
+		if specs[i].memo {
+			memo = &runMemo{}
+			break
+		}
+	}
 	var first [8]match
 	e := expander{buf: first[:0]}
 	for i := range specs {
@@ -237,7 +253,7 @@ func (v *Validator) run(ctx context.Context, root any, specs []fieldSpec, bag *E
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := v.field(ctx, root, spec, m, b); err != nil {
+			if err := v.field(ctx, root, spec, m, b, memo); err != nil {
 				return err
 			}
 		}
@@ -252,18 +268,23 @@ func (v *Validator) run(ctx context.Context, root any, specs []fieldSpec, bag *E
 	return &ValidationError{Errors: bag}
 }
 
-func (v *Validator) field(ctx context.Context, root any, spec *fieldSpec, m match, bag *Errors) error {
+func (v *Validator) field(ctx context.Context, root any, spec *fieldSpec, m match, bag *Errors, memo *runMemo) error {
 	value, present := m.value, m.present
 	if spec.sometimes && !present {
 		return nil
 	}
-	f := Field{Path: m.path, Pattern: spec.pattern, Value: value, Present: present, root: root, rules: spec.rules, v: v}
+	f := Field{Path: m.path, Pattern: spec.pattern, Value: value, Present: present, root: root, rules: spec.rules, v: v, memo: memo}
 	for _, ex := range spec.excluders {
 		excluded, err := ex.excluded(ctx, f)
 		if err != nil {
 			return err
 		}
 		if excluded {
+			return nil
+		}
+	}
+	if present {
+		if limit := v.fileLimit(); limit > 0 && v.checkFileSizes(f, spec, limit, bag) {
 			return nil
 		}
 	}

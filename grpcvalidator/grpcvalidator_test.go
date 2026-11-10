@@ -17,10 +17,10 @@ import (
 // createUser mimics a protoc-gen-go struct: json tags with omitempty and
 // unexported bookkeeping fields.
 type createUser struct {
-	state       struct{}
-	Email       string `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
-	DisplayName string `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	Age         int32  `protobuf:"varint,3,opt,name=age,proto3" json:"age,omitempty"`
+	state       struct{} //lint:ignore U1000 mimics protoc-gen-go's unexported fields
+	Email       string   `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
+	DisplayName string   `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Age         int32    `protobuf:"varint,3,opt,name=age,proto3" json:"age,omitempty"`
 }
 
 func (r *createUser) Rules() validator.Rules {
