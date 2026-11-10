@@ -31,7 +31,6 @@ func (c *RuleChain) Build(r *Registry) ([]Rule, error) {
 // Use appends rule values, typically custom rules.
 func (c *RuleChain) Use(rules ...Rule) *RuleChain {
 	for _, rule := range rules {
-		rule := rule
 		c.steps = append(c.steps, func(*Registry) (Rule, error) { return rule, nil })
 	}
 	return c

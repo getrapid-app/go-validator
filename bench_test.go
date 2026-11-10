@@ -33,7 +33,7 @@ func BenchmarkStructTags(b *testing.B) {
 	o := benchOrder{Email: "jane@example.com", Name: "Jane", Country: "EG", Items: benchItems(3)}
 	ctx := context.Background()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if err := validator.Struct(ctx, &o); err != nil {
 			b.Fatal(err)
 		}
@@ -50,7 +50,7 @@ func BenchmarkMapRules(b *testing.B) {
 	}
 	ctx := context.Background()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if err := validator.Validate(ctx, in, rules); err != nil {
 			b.Fatal(err)
 		}
@@ -61,7 +61,7 @@ func BenchmarkWildcard100Items(b *testing.B) {
 	o := benchOrder{Email: "jane@example.com", Name: "Jane", Country: "EG", Items: benchItems(100)}
 	ctx := context.Background()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if err := validator.Struct(ctx, &o); err != nil {
 			b.Fatal(err)
 		}
@@ -72,7 +72,7 @@ func BenchmarkFailingWithMessages(b *testing.B) {
 	o := benchOrder{Email: "nope", Country: "FR", Items: []benchItem{{}}}
 	ctx := context.Background()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if err := validator.Struct(ctx, &o); err == nil {
 			b.Fatal("want errors")
 		}

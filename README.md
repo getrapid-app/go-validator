@@ -13,7 +13,7 @@ Laravel-style validation for Go. Write rules the way you would in Laravel, and u
 - **Transport-agnostic.** The core has no dependencies. `nethttp` uses only the standard library, and `grpcvalidator` is a separate module.
 - **Laravel-compatible errors.** HTTP failures come back as `422 {"message": ..., "errors": {...}}`, so existing front ends keep working.
 
-Requires Go 1.22 or later.
+Requires Go 1.26 or later.
 
 ## Install
 

@@ -1,12 +1,13 @@
 package validator
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
 	"path"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -175,7 +176,7 @@ func (t *Translations) Locales() []string {
 	for l := range t.locales {
 		out = append(out, l)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -309,7 +310,7 @@ func acceptLanguages(header string) []string {
 		q   float64
 	}
 	var list []entry
-	for _, part := range strings.Split(header, ",") {
+	for part := range strings.SplitSeq(header, ",") {
 		tag, params, _ := strings.Cut(strings.TrimSpace(part), ";")
 		tag = normalizeLocale(tag)
 		if tag == "" || tag == "*" {
@@ -325,7 +326,7 @@ func acceptLanguages(header string) []string {
 			list = append(list, entry{tag, q})
 		}
 	}
-	sort.SliceStable(list, func(i, j int) bool { return list[i].q > list[j].q })
+	slices.SortStableFunc(list, func(a, b entry) int { return cmp.Compare(b.q, a.q) })
 	out := make([]string, len(list))
 	for i, e := range list {
 		out[i] = e.tag

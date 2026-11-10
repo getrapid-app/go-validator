@@ -1,6 +1,6 @@
 module github.com/getrapid-app/go-validator/grpcvalidator
 
-go 1.22
+go 1.26.0
 
 require (
 	github.com/getrapid-app/go-validator v0.2.1

@@ -37,7 +37,7 @@ func TestSimpleEmailAgreesWithNetMail(t *testing.T) {
 	const alphabet = "ab.@@..\"()<>[]:;\\, \t-+_~!éA1"
 	r := rand.New(rand.NewSource(1))
 	runes := []rune(alphabet)
-	for i := 0; i < 200000; i++ {
+	for range 200000 {
 		b := make([]rune, 1+r.Intn(10))
 		for j := range b {
 			b[j] = runes[r.Intn(len(runes))]
@@ -94,7 +94,7 @@ func TestSnapshotNormalizesLikeValue(t *testing.T) {
 		In:   in, Ptr: &in, List: []snapInner{in, {N: 300}}, PList: []*snapInner{&in, nil},
 		Any: []any{in, &in, "z"}, Map: map[string]string{"k": "v"}, Arr: [2]int{1, 2}, Named: "on",
 	}
-	if !infoOf(reflect.TypeOf(o)).snapshot || !infoOf(reflect.TypeOf(in)).snapshot {
+	if !infoOf(reflect.TypeFor[snapOuter]()).snapshot || !infoOf(reflect.TypeFor[snapInner]()).snapshot {
 		t.Fatal("test types should be snapshotted")
 	}
 	byPtr, byValue := normalizeValue(reflect.ValueOf(&o)), normalizeValue(reflect.ValueOf(o))
@@ -161,5 +161,35 @@ func TestValidateMapDoesNotAllocate(t *testing.T) {
 	}
 	if n := testing.AllocsPerRun(100, func() { _ = Validate(ctx, in, rules) }); n != 0 {
 		t.Fatalf("Validate allocated %v times per run, want 0", n)
+	}
+}
+
+type allocItem struct {
+	SKU   string  `json:"sku" validate:"required|string|max:32"`
+	Qty   int     `json:"qty" validate:"required|integer|min:1"`
+	Price float64 `json:"price" validate:"required|numeric|min:0"`
+}
+
+type allocOrder struct {
+	Email   string      `json:"email" validate:"required|email|max:255"`
+	Name    string      `json:"name" validate:"required|string|between:2,100"`
+	Country string      `json:"country" validate:"required|in:EG,US,GB,DE"`
+	Items   []allocItem `json:"items" validate:"required|array|min:1"`
+}
+
+// TestStructAllocations guards the allocation count of a valid struct:
+// one copy and one map per struct, the items list, and nothing per rule.
+func TestStructAllocations(t *testing.T) {
+	if raceEnabled {
+		t.Skip("the race detector adds allocations")
+	}
+	o := allocOrder{Email: "jane@example.com", Name: "Jane", Country: "EG",
+		Items: []allocItem{{"a", 1, 9.99}, {"b", 2, 9.99}, {"c", 3, 9.99}}}
+	ctx := context.Background()
+	if err := Struct(ctx, &o); err != nil {
+		t.Fatal(err)
+	}
+	if n := testing.AllocsPerRun(100, func() { _ = Struct(ctx, &o) }); n > 14 {
+		t.Fatalf("Struct allocated %v times per run, want at most 14", n)
 	}
 }

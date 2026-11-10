@@ -4,7 +4,7 @@ import (
 	"encoding"
 	"mime/multipart"
 	"reflect"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,10 +17,10 @@ import (
 // lookup works on that tree, so structs and maps behave identically.
 
 var (
-	textMarshalerType      = reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
-	timeType               = reflect.TypeOf(time.Time{})
-	multipartHeaderType    = reflect.TypeOf(multipart.FileHeader{})
-	multipartHeaderPtrType = reflect.TypeOf(&multipart.FileHeader{})
+	textMarshalerType      = reflect.TypeFor[encoding.TextMarshaler]()
+	timeType               = reflect.TypeFor[time.Time]()
+	multipartHeaderType    = reflect.TypeFor[multipart.FileHeader]()
+	multipartHeaderPtrType = reflect.TypeFor[*multipart.FileHeader]()
 )
 
 func normalize(v any) any {
@@ -134,8 +134,7 @@ func isPlain(t reflect.Type) bool {
 // values put into an interface.
 func boxedFields(t reflect.Type) int {
 	n := 0
-	for i := 0; i < t.NumField(); i++ {
-		sf := t.Field(i)
+	for sf := range t.Fields() {
 		if _, ok := fieldName(sf); !ok {
 			continue
 		}
@@ -466,7 +465,7 @@ func (e expander) walk(cur any, present bool, segs []string) expander {
 		for k := range n {
 			keys = append(keys, k)
 		}
-		sort.Strings(keys)
+		slices.Sort(keys)
 		for _, k := range keys {
 			if sep {
 				e.path = append(e.path, '.')
@@ -574,12 +573,7 @@ func (e expander) expandSpec(root any, spec *fieldSpec) expander {
 func splitPath(p string) []string { return strings.Split(p, ".") }
 
 func hasWildcard(segs []string) bool {
-	for _, s := range segs {
-		if s == "*" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(segs, "*")
 }
 
 // resolveRelative replaces the "*" segments of other with the indexes that

@@ -84,8 +84,8 @@ func join(path, seg string) string {
 }
 
 var (
-	textUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
-	fileHeaderPtrType   = reflect.TypeOf((*multipart.FileHeader)(nil))
+	textUnmarshalerType = reflect.TypeFor[encoding.TextUnmarshaler]()
+	fileHeaderPtrType   = reflect.TypeFor[*multipart.FileHeader]()
 )
 
 func (d *decoder) assign(dst reflect.Value, src any, path string) {

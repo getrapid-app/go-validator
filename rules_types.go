@@ -3,6 +3,7 @@ package validator
 import (
 	"context"
 	"encoding/json"
+	"slices"
 )
 
 func registerTypes(r *Registry) {
@@ -114,10 +115,8 @@ func Enum[T comparable](allowed ...T) Rule {
 	return &funcRule{name: "enum", fn: func(_ context.Context, f Field) error {
 		v, ok := As[T](f.Value)
 		if ok {
-			for _, a := range allowed {
-				if a == v {
-					return nil
-				}
+			if slices.Contains(allowed, v) {
+				return nil
 			}
 		}
 		return Fail("enum", nil)

@@ -16,7 +16,7 @@ func asReflect[T any](v any) (T, bool) {
 	if v == nil {
 		return zero, false
 	}
-	target := reflect.TypeOf((*T)(nil)).Elem()
+	target := reflect.TypeFor[T]()
 	rv := reflect.ValueOf(v)
 	if !isNumberKind(rv.Kind()) || !isNumberKind(target.Kind()) {
 		return zero, false

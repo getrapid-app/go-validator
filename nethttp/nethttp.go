@@ -133,8 +133,7 @@ func response(ctx context.Context, v *validator.Validator, err error) (int, Erro
 	if errors.Is(err, validator.ErrUnauthorized) {
 		return http.StatusForbidden, ErrorBody{Message: v.Translate(ctx, "http.unauthorized", nil)}
 	}
-	var de *DecodeError
-	if errors.As(err, &de) {
+	if de, ok := errors.AsType[*DecodeError](err); ok {
 		return http.StatusBadRequest, ErrorBody{Message: de.Error()}
 	}
 	return http.StatusInternalServerError, ErrorBody{Message: v.Translate(ctx, "http.server_error", nil)}

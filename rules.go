@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -210,12 +211,7 @@ func isBlankValue(v any, acceptZero bool) bool {
 }
 
 func containsString(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, s)
 }
 
 // matchesAny reports whether v, compared as text the way Laravel does,

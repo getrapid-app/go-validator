@@ -200,7 +200,7 @@ func As[T any](v any) (T, bool) {
 			return any(n).(T), ok
 		}
 	}
-	target := reflect.TypeOf((*T)(nil)).Elem()
+	target := reflect.TypeFor[T]()
 	rv := reflect.ValueOf(v)
 	// Named string types, such as enums: type Status string.
 	if rv.Kind() == reflect.String && target.Kind() == reflect.String {
@@ -233,8 +233,7 @@ func isImplicit(r Rule) bool {
 }
 
 func isAbort(err error) (error, bool) {
-	var a *abortError
-	if errors.As(err, &a) {
+	if a, ok := errors.AsType[*abortError](err); ok {
 		return a.err, true
 	}
 	return nil, false

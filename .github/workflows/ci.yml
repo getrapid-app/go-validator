@@ -16,14 +16,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go: ["1.22", "stable"]
+        go: ["1.26", "stable"]
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go }}
-          cache-dependency-path: grpcvalidator/go.sum
+          cache-dependency-path: |
+            grpcvalidator/go.sum
+            benchmarks/go.sum
 
       # The gRPC adapter requires the core module by version; a workspace
       # with a replace makes it build against the core in this checkout, so
@@ -49,3 +51,15 @@ jobs:
 
       - name: Benchmarks compile and run once
         run: go test -run=^$ -bench=. -benchtime=1x ./...
+
+      # The comparison with go-playground/validator is its own module (so
+      # the core keeps no dependencies) and uses the core through its own
+      # replace, so it runs outside the workspace.
+      - name: Compare with go-playground
+        working-directory: benchmarks
+        env:
+          GOWORK: "off"
+        run: |
+          go vet ./...
+          go test -count=1 ./...
+          go test -run=^$ -bench=. -benchtime=1x ./...

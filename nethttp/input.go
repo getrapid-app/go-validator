@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/url"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -64,9 +65,7 @@ func Input(r *http.Request) (map[string]any, error) {
 		if !ok {
 			return nil, &DecodeError{errors.New("the JSON body must be an object")}
 		}
-		for k, val := range obj {
-			in[k] = val
-		}
+		maps.Copy(in, obj)
 	case ct == "application/x-www-form-urlencoded":
 		r.Body = http.MaxBytesReader(nil, r.Body, MaxBodyBytes)
 		if err := r.ParseForm(); err != nil {
@@ -123,12 +122,7 @@ func mergeValues(dst map[string]any, vals url.Values) {
 }
 
 func mergeFiles(dst map[string]any, files map[string][]*multipart.FileHeader) {
-	keys := make([]string, 0, len(files))
-	for k := range files {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
+	for _, key := range slices.Sorted(maps.Keys(files)) {
 		list := files[key]
 		segs, appendLast := splitKey(key)
 		if appendLast || len(list) > 1 {
@@ -144,20 +138,13 @@ func mergeFiles(dst map[string]any, files map[string][]*multipart.FileHeader) {
 	listify(dst)
 }
 
-func sortedKeys(v url.Values) []string {
-	keys := make([]string, 0, len(v))
-	for k := range v {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
+func sortedKeys(v url.Values) []string { return slices.Sorted(maps.Keys(v)) }
 
 // splitKey turns "a[b][0]" or "a.b.0" into its segments. appendLast is true
 // for keys ending in "[]".
 func splitKey(key string) (segs []string, appendLast bool) {
-	if strings.HasSuffix(key, "[]") {
-		key, appendLast = strings.TrimSuffix(key, "[]"), true
+	if before, ok := strings.CutSuffix(key, "[]"); ok {
+		key, appendLast = before, true
 	}
 	key = strings.ReplaceAll(key, "]", "")
 	key = strings.ReplaceAll(key, "[", ".")

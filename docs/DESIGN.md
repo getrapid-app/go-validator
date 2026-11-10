@@ -1,6 +1,6 @@
 # go-validator design
 
-Status: released as v0.2.2.
+Status: released as v0.2.3.
 
 ## Goal
 
@@ -14,7 +14,7 @@ Bring Laravel's request validation to Go, written the way Go code is written, an
 - One rule interface used by built-in rules and user rules alike, with a fluent way to define custom rules.
 - Use generics where they help.
 - Ship an opinionated, recommended structure (the request pattern) rather than only loose helpers.
-- Open source, Go 1.22 or later.
+- Open source, Go 1.26 or later (the Go releases supported upstream).
 
 ## Architecture
 

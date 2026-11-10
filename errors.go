@@ -134,8 +134,7 @@ func (e *ValidationError) Error() string {
 // ErrorsOf returns the error bag carried by err, if err is (or wraps) a
 // ValidationError.
 func ErrorsOf(err error) (*Errors, bool) {
-	var ve *ValidationError
-	if errors.As(err, &ve) {
+	if ve, ok := errors.AsType[*ValidationError](err); ok {
 		return ve.Errors, true
 	}
 	return nil, false
