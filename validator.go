@@ -42,6 +42,7 @@ type Validator struct {
 	now        func() time.Time
 	password   CurrentPasswordChecker
 	maxFile    int64 // default file size limit; 0 uses DefaultMaxFileSize, <0 none
+	maxErrors  int   // failed fields before stopping; 0 uses DefaultMaxErrors, <0 none
 }
 
 // Option configures a Validator, either once in New or per call.
@@ -244,8 +245,10 @@ func (v *Validator) run(ctx context.Context, root any, specs []fieldSpec, bag *E
 			break
 		}
 	}
+	limit := v.errorLimit()
 	var first [8]match
 	e := expander{buf: first[:0]}
+specs:
 	for i := range specs {
 		spec := &specs[i]
 		e = e.expandSpec(root, spec)
@@ -255,6 +258,9 @@ func (v *Validator) run(ctx context.Context, root any, specs []fieldSpec, bag *E
 			}
 			if err := v.field(ctx, root, spec, m, b, memo); err != nil {
 				return err
+			}
+			if limit > 0 && len(b.order) >= limit {
+				break specs
 			}
 		}
 	}

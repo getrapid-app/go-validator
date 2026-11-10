@@ -65,6 +65,16 @@ req, err := validator.Bind[CreateOrder](ctx, input) // decode + validate
 
 Like `json.Unmarshal`, `Bind` fills every field the input names, including fields without rules. Tag fields that clients must never set, such as `IsAdmin`, with `json:"-"`.
 
+### Stopping early
+
+Validation stops once `validator.DefaultMaxErrors` (100) fields have failed, so a request full of bad items cannot make it check and translate every one. Use `validator.WithMaxErrors(n)` for another limit (negative for none), or `validator.StopOnFirstFailure()` to stop at the first failing field, as Laravel's `$stopOnFirstFailure` does:
+
+```go
+err := validator.Validate(ctx, input, rules, validator.StopOnFirstFailure())
+
+func (CreateOrder) StopOnFirstFailure() bool { return true } // the same, for a request type
+```
+
 ### Zero values
 
 A Go struct can't tell a missing number from `0`, so `required` treats `0` as empty. Add `accept_zero` when 0 is a real value: `validate:"required|accept_zero|integer"`. To make a field optional, use a pointer; a nil pointer counts as missing.
