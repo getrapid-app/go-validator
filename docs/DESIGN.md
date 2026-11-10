@@ -1,6 +1,6 @@
 # go-validator design
 
-Status: released as v0.2.3.
+Status: released as v0.3.0.
 
 ## Goal
 
@@ -175,6 +175,7 @@ All adapters follow the same path: decode the transport's input, run the request
 - **Core `Bind[T](ctx, input)`** decodes a `map[string]any` into `T` and validates it. Decoding is lenient for form-style input ("42" into an `int`, "on" into a `bool`). A value that cannot be converted becomes a validation error on its field ("must be an integer"). Rules see the decoded struct plus any input keys without a struct field, so `confirmed` and `same:password_confirmation` work without adding those fields to `T`.
 - **`nethttp`** (stdlib only, inside the core module): `Input(r)` merges query and body (JSON, urlencoded, multipart with files; `items[0][name]`, `items.0.name` and `tags[]` keys), `Bind[T](r)`, `Handle[T](fn)`, `Validate(r, rules)` for map-only validation, and `WriteError`/`Response` with Laravel's 422/403/400 shapes.
 - **`grpcvalidator`** (separate module, depends on grpc): unary and stream interceptors validate messages that implement a request hook (usually `Rules()` in a file next to the generated code). Errors map to `InvalidArgument` with `errdetails.BadRequest`, and `ErrUnauthorized` maps to `PermissionDenied`. It requires the core by version; CI and local development build both modules together through a `go.work` workspace (see CONTRIBUTING.md).
+- **`playground`** (separate module, depends on go-playground/validator): registers go-playground's single-value validations as `pg.<tag>` rules. Each rule calls `Var` on one shared go-playground validator with the tag built once at compile time (`pg.oneof:a,b` becomes `oneof=a b`), and treats go-playground's panics on unsupported types as failures. Messages are registry defaults (English) plus Arabic translations, keyed `pg.<tag>` with `.string`/`.numeric`/`.array`/`.date` variants for size tags.
 
 ## Rules
 

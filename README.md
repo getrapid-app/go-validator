@@ -20,6 +20,7 @@ Requires Go 1.26 or later.
 ```sh
 go get github.com/getrapid-app/go-validator
 go get github.com/getrapid-app/go-validator/grpcvalidator # only for gRPC
+go get github.com/getrapid-app/go-validator/playground    # only for go-playground rules
 ```
 
 ## Quick start
@@ -113,6 +114,34 @@ grpc.NewServer(
 ```
 
 Failures become `InvalidArgument` with an `errdetails.BadRequest` that lists each field. Add `grpcvalidator.WithAcceptLanguage()` to both interceptors to answer in the language of the client's `accept-language` metadata. Use proto3 `optional` for numbers that may be unset.
+
+## go-playground rules
+
+The optional `playground` module adds the validations of [go-playground/validator](https://github.com/go-playground/validator) as rules named `pg.<tag>`, next to the Laravel rules. The prefix keeps them from clashing with Laravel rules of the same name.
+
+```go
+import "github.com/getrapid-app/go-validator/playground"
+
+playground.Use() // once, at program start
+
+type Signup struct {
+    Phone   string `json:"phone" validate:"required|pg.e164"`
+    Country string `json:"country" validate:"required|pg.iso3166_1_alpha2"`
+    Code    string `json:"code" validate:"required|pg.len:6"`
+    Color   string `json:"color" validate:"pg.oneof:red,green,blue"`
+}
+```
+
+- **Syntaxes.** They work in rule strings, struct tags and the fluent API (`Chain().Rule("pg.len", "6")`).
+- **Parameters.** They use this package's syntax: `pg.len:6` runs go-playground's `len=6`, and `pg.oneof:red,green,blue` runs `oneof=red green blue`.
+- **Presence.** As with any rule, a `pg` rule is skipped for a missing or empty field; use `required`, `nullable` or `sometimes` for presence.
+- **Messages.** They are keyed `pg.<tag>`, ship in English and Arabic, and are translated or overridden like any other message.
+- **Your own go-playground validations.** Pass your own validator with `playground.WithValidate(v)` and name its custom tags with `playground.Tags(...)`.
+
+About 150 tags are available; see [docs/RULES.md](docs/RULES.md#go-playground-rules). Some are left out:
+- **Cross-field tags** (`eqfield`, `required_if`, ...) need the whole struct; use the Laravel rules.
+- **Presence tags** (`required`, `omitempty`, ...) are already covered by the Laravel rules.
+- **File-system tags** (`file`, `dir`, `image`, `mimetype`, `uds_exists`) would read the server's disk from user input.
 
 ## Translations
 

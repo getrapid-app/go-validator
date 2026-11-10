@@ -149,6 +149,24 @@ These keys are translated and overridden like rule messages:
 | `http.unauthorized` | This action is unauthorized. |
 | `http.server_error` | Server Error |
 
+## go-playground rules
+
+With the optional `playground` module (`playground.Use()`), go-playground/validator's single-value validations are available as `pg.<tag>`. Parameters use this package's syntax: `pg.len:6`, `pg.oneof:red,green,blue`. Messages are keyed `pg.<tag>`. The size and comparison tags (`len`, `min`, `max`, `eq`, `ne`, `lt`, `lte`, `gt`, `gte`) also have `.string`, `.numeric` and `.array` variants, and `lt`, `lte`, `gt` and `gte` have `.date`. `playground.TagNames()` and `playground.MessageKeys()` list them all.
+
+| Group | Tags |
+|---|---|
+| Sizes and comparisons | `len` `min` `max` `eq` `ne` `lt` `lte` `gt` `gte` `eq_ignore_case` `ne_ignore_case` |
+| Lists | `oneof` `oneofci` `noneof` `noneofci` `unique` |
+| Strings | `alpha` `alphaspace` `alphanum` `alphanumspace` `alphaunicode` `alphanumunicode` `ascii` `printascii` `multibyte` `lowercase` `uppercase` `boolean` `numeric` `number` `hexadecimal` `contains` `containsany` `containsrune` `excludes` `excludesall` `excludesrune` `startswith` `endswith` `startsnotwith` `endsnotwith` `html` `html_encoded` `url_encoded` `json` `jwt` `datauri` `base32` `base64` `base64url` `base64rawurl` |
+| Colors | `hexcolor` `rgb` `rgba` `hsl` `hsla` `cmyk` `iscolor` |
+| Web and network | `email` `e164` `url` `http_url` `https_url` `uri` `origin` `urn_rfc2141` `urn_rfc8141` `filepath` `dirpath` `ip` `ipv4` `ipv6` `cidr` `cidrv4` `cidrv6` `ip_addr` `ip4_addr` `ip6_addr` `tcp_addr` `tcp4_addr` `tcp6_addr` `udp_addr` `udp4_addr` `udp6_addr` `unix_addr` `mac` `hostname` `hostname_rfc1123` `hostname_label` `hostname_port` `fqdn` `port` `dns_rfc1035_label` |
+| Identifiers and hashes | `uuid` `uuid3` `uuid4` `uuid5` `uuid7` `uuid_rfc4122` `uuid3_rfc4122` `uuid4_rfc4122` `uuid5_rfc4122` `ulid` `md4` `md5` `sha256` `sha384` `sha512` `ripemd128` `ripemd160` `tiger128` `tiger160` `tiger192` `mongodb` `cve` `semver` `cron` `spicedb` |
+| Money and ID numbers | `credit_card` `luhn_checksum` `bic` `bic_iso_9362_2014` `iso4217` `iso4217_numeric` `btc_addr` `btc_addr_bech32` `eth_addr` `eth_addr_checksum` `isbn` `isbn10` `isbn13` `issn` `ssn` `ein` |
+| Places, languages and time | `latitude` `longitude` `iso3166_1_alpha2` `iso3166_1_alpha2_eu` `iso3166_1_alpha3` `iso3166_1_alpha3_eu` `iso3166_1_alpha_numeric` `iso3166_1_alpha_numeric_eu` `country_code` `eu_country_code` `iso3166_2` `postcode_iso3166_alpha2` `bcp47_language_tag` `bcp47_strict_language_tag` `timezone` `datetime` `duration` |
+| Other | `mongodb_connection_string` |
+
+Not available: cross-field tags (`eqfield`, `gtfield`, `required_if`, `excluded_with`, `fieldcontains`, `postcode_iso3166_alpha2_field`, ...), presence tags (`required`, `omitempty`, `isdefault`, ...), `validateFn`, and file-system tags (`file`, `dir`, `image`, `mimetype`, `uds_exists`).
+
 ## Not ported
 
 - `can`: authorization belongs in the request's `Authorize` hook.
