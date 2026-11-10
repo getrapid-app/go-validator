@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- The `playground` module, which adds go-playground/validator's single-value validations as rules named `pg.<tag>` (about 150, such as `pg.e164`, `pg.iso3166_1_alpha2` and `pg.len:6`). They work in rule strings, struct tags and the fluent API, with English and Arabic messages that are translated and overridden like any other. `playground.WithValidate` and `playground.Tags` add custom go-playground validations.
+
+## [0.3.0] - 2026-11-10
+
 ### Changed
 
 - **Go 1.26 or later is now required** (was 1.22), for the core module and `grpcvalidator`. Go 1.26 and 1.27 are the releases the Go team currently supports. Benchmarks showed no speed difference from the `go` line itself; speed depends on the toolchain an application builds with.
@@ -81,6 +87,7 @@ First release.
 - `nethttp` adapter: request input decoding (JSON, forms, multipart files, query), `Bind`, `Handle`, and Laravel-shaped 422/403/400 responses.
 - `grpcvalidator` module: unary and stream interceptors returning `InvalidArgument` with field violations.
 
+[0.3.0]: https://github.com/getrapid-app/go-validator/releases/tag/v0.3.0
 [0.2.3]: https://github.com/getrapid-app/go-validator/releases/tag/v0.2.3
 [0.2.2]: https://github.com/getrapid-app/go-validator/releases/tag/v0.2.2
 [0.2.1]: https://github.com/getrapid-app/go-validator/releases/tag/v0.2.1
