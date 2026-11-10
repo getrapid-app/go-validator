@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- **Validation stops after `validator.DefaultMaxErrors` (100) failed fields** and returns the errors so far, so a request with 100,000 bad items costs 23 ms instead of 220 ms and 100 MB. Change it at program start, or per validator or call with `validator.WithMaxErrors(n)` (negative for no limit). `validator.StopOnFirstFailure()` stops at the first failing field, like Laravel's `$stopOnFirstFailure`, and request types can return true from a `StopOnFirstFailure() bool` method for the same effect. Decode errors from `Bind` count toward the limit.
+
+## [0.4.0] - 2026-11-10
+
+Released with `grpcvalidator/v0.2.2` (the grpc upgrade below) and the first `playground/v0.1.0`.
+
+### Added
+
 - A security lab ([docs/SECURITY_LAB.md](docs/SECURITY_LAB.md)): fuzz targets for every rule, rule strings, field patterns, `Bind`, `Accept-Language`, translation catalogs, `nethttp.Input` and the go-playground tags; attack probes behind the `seclab` build tag; and a Security workflow that runs `govulncheck`, `staticcheck` and the fuzzers on every pull request and weekly. [SECURITY.md](SECURITY.md) explains how to report a vulnerability.
 - **A default size limit for every file:** `validator.DefaultMaxFileSize` (10 MB), changed at program start or per validator with `validator.WithMaxFileSize`. A field's own `max`, `size`, `between`, `lt` or `lte` replaces it, higher or lower (`"video": "file|max:51200"` allows 50 MB). Oversized files fail with the `max.file` message before their content is read. Files over 10 MB in fields without a size rule now fail; raise the default or set `max` on those fields.
 - `nethttp.MaxMultipartBytes` (32 MB) and `nethttp.MaxKeyDepth` (32).
@@ -98,6 +106,7 @@ First release.
 - `nethttp` adapter: request input decoding (JSON, forms, multipart files, query), `Bind`, `Handle`, and Laravel-shaped 422/403/400 responses.
 - `grpcvalidator` module: unary and stream interceptors returning `InvalidArgument` with field violations.
 
+[0.4.0]: https://github.com/getrapid-app/go-validator/releases/tag/v0.4.0
 [0.3.0]: https://github.com/getrapid-app/go-validator/releases/tag/v0.3.0
 [0.2.3]: https://github.com/getrapid-app/go-validator/releases/tag/v0.2.3
 [0.2.2]: https://github.com/getrapid-app/go-validator/releases/tag/v0.2.2

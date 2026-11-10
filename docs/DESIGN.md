@@ -188,6 +188,7 @@ All of Laravel's validation rules are ported except `can` (use `Authorize` in th
 - `exists` and `unique` call a `PresenceVerifier` you provide (`WithPresenceVerifier`), so the package does not depend on a database driver. `current_password` calls a `CurrentPasswordChecker`.
 - File rules work on any value implementing `File`; `*multipart.FileHeader` is converted automatically. `mimes` and `image` check the file's content, not its name. Every file also gets a default size limit (`DefaultMaxFileSize`, 10 MB) unless its field's own `max`, `size`, `between`, `lt` or `lte` sets one, which plays the part of PHP's `upload_max_filesize`. It covers files directly inside a list field too, such as `"photos": "array"`.
 - After a field fails an implicit rule such as `required`, its remaining rules are skipped, as Laravel does.
+- Validation stops after `DefaultMaxErrors` (100) failed fields. Laravel checks every field unless `$stopOnFirstFailure` is set; a default cap keeps a request with thousands of bad items from costing thousands of checks and messages. `StopOnFirstFailure()` and a request's `StopOnFirstFailure() bool` give Laravel's switch.
 - Rules that only exist as objects in Laravel are constructors here: `Enum[T]`, `ValidEnum[T]`, `Password()`, `Dimensions()`, `Exists()/Unique()`, `AnyOf`, `When`, `RequiredIfFunc`, `ProhibitedIfFunc`, `ExcludeIfFunc`.
 
 ## Decisions

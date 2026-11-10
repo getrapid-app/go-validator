@@ -44,7 +44,11 @@ func BindWith[T any](ctx context.Context, v *Validator, input any, opts ...Optio
 		bag = NewErrors()
 	}
 	vv := v.with(requestOptions(req, opts))
+	limit := vv.errorLimit()
 	for _, te := range typeErrs {
+		if limit > 0 && len(bag.order) >= limit && !bag.Has(te.Path) {
+			break
+		}
 		bag.Set(te.Path, vv.Message(te.Path, te.Kind, nil))
 	}
 	return req, &ValidationError{Errors: bag}
@@ -290,6 +294,9 @@ func toBool(v any) (bool, bool) {
 // MessagesProvider and AttributesProvider hooks.
 func requestOptions(req any, opts []Option) []Option {
 	out := append([]Option(nil), opts...)
+	if s, ok := req.(FirstFailureStopper); ok && s.StopOnFirstFailure() {
+		out = append(out, StopOnFirstFailure())
+	}
 	if m, ok := req.(MessagesProvider); ok {
 		out = append(out, WithMessages(m.Messages()))
 	}
